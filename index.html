@@ -158,6 +158,7 @@
         <button class="btn" id="btnShare" hidden>Megosztás…</button>
         <button class="btn" id="btnSaveJson">Projekt mentése</button>
       </div>
+      <p class="muted note" id="zipNote" hidden>Itt az STL egy ZIP fájlban érkezik. Telefonon a Fájlok appban koppints rá a kibontáshoz, vagy küldd át a számítógépre, és ott nyisd meg a szeletelőben.</p>
       <details class="values">
         <summary>Nyomtatási és használati tippek (szilárdság)</summary>
         <ul class="tips">
@@ -193,6 +194,16 @@
       <button class="menu-item" data-menu="new">✚ Új kulcs</button>
       <button class="menu-item" data-menu="intro">ℹ Bemutató és tudnivalók</button>
       <div class="row end"><button class="btn" id="menuClose">Bezár</button></div>
+    </div>
+  </div>
+
+  <div id="confirm" class="sheet" hidden>
+    <div class="sheet-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmText">
+      <p id="confirmText"></p>
+      <div class="row end">
+        <button class="btn" id="confirmNo">Mégse</button>
+        <button class="btn primary" id="confirmYes">Igen</button>
+      </div>
     </div>
   </div>
 

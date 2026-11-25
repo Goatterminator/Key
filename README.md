@@ -31,6 +31,14 @@ python3 -m http.server 8080
 # majd böngészőben: http://localhost:8080
 ```
 
+### Claude artifactként
+
+Az app Claude artifactként is fut (a claude.ai-on vagy a Claude alkalmazásban). Az `artifact/index.html` ugyanaz az oldal a platform keret nélküli formátumában; a `node scripts/build-artifact.mjs` készíti el az `index.html`-ből. Közzétételkor mellé kell tenni a `css/app.css`, `js/*.js` és `vendor/earcut.js` fájlokat, és a `downloads` képességet kell megadni.
+
+Artifactban a fájlmentés a Claude saját mentési párbeszédén keresztül megy, ami `.stl` fájlt nem enged, ezért az STL egy **ZIP fájlban** érkezik (ugyanaz a modell, ki kell bontani). A projekt JSON mentése és betöltése ugyanúgy működik.
+
+### Saját tárhelyen
+
 Telefonon a legkényelmesebb **HTTPS** alatt elérhetővé tenni, például **GitHub Pages**-szel: a repó *Settings → Pages* oldalán válaszd a „Deploy from a branch” opciót, az ágat és a `/ (root)` mappát. Ezután a telefonon nyisd meg az oldalt, és add hozzá a kezdőképernyőhöz – így teljes képernyőn fut, és a nézet nem mozdul el jelölés közben.
 
 ## Szilárdság
@@ -76,5 +84,6 @@ npm run e2e     # végigkattintja az appot egy emulált telefonon (Playwright + 
 | `js/handles.js`, `js/frame.js` | Fogantyúk és a képernyő ↔ kulcs koordináta-rendszer |
 | `js/viewer.js` | Saját, függőség nélküli WebGL előnézet |
 | `js/stl.js` | Bináris STL író |
+| `js/zip.js` | Egyszerű ZIP író (artifactban így tölthető le az STL) |
 | `js/main.js` | Lépések, panelek, mentés, visszavonás |
 | `vendor/earcut.js` | Sokszög-háromszögelés ([earcut](https://github.com/mapbox/earcut), ISC licenc) |

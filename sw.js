@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from the cache and refresh it in the background.
-const CACHE = 'kulcsmasolo-v2';
+const CACHE = 'kulcsmasolo-v3';
 const SHELL = [
   './',
   'index.html',
@@ -14,6 +14,7 @@ const SHELL = [
   'js/stl.js',
   'js/help.js',
   'js/util.js',
+  'js/zip.js',
   'vendor/earcut.js',
   'manifest.webmanifest',
   'icons/icon.svg',

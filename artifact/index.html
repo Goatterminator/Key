@@ -1,0 +1,197 @@
+<title>Kulcsmásoló 3D</title>
+<link rel="stylesheet" href="css/app.css">
+<canvas id="stage" aria-label="Jelölő felület"></canvas>
+  <canvas id="view3d" hidden aria-label="3D előnézet"></canvas>
+
+  <header id="topbar">
+    <button class="icon-btn" id="btnPrev" aria-label="Előző lépés">‹</button>
+    <div class="title">
+      <span class="step-no" id="stepNo">1/5</span>
+      <span id="stepTitle">Penge</span>
+    </div>
+    <button class="icon-btn" id="btnUndo" aria-label="Visszavonás" title="Visszavonás">↶</button>
+    <button class="icon-btn" id="btnHelp" aria-label="Súgó">?</button>
+    <button class="icon-btn" id="btnMenu" aria-label="Menü">⋯</button>
+    <button class="next-btn" id="btnNext">Tovább ›</button>
+  </header>
+
+  <div id="banner" hidden></div>
+
+  <section id="panel">
+    <!-- calibration -->
+    <div class="step-panel" data-step="calib">
+      <div class="row calib-row">
+        <button class="btn sq" id="calCancel" aria-label="Mégse" title="Mégse">✕</button>
+        <button class="btn sq" data-help="calib" aria-label="Súgó">?</button>
+        <button class="btn sq" id="calMinus" aria-label="Kisebb">−</button>
+        <input type="range" id="calRange" min="2" max="14" step="0.001" aria-label="Méretarány">
+        <button class="btn sq" id="calPlus" aria-label="Nagyobb">+</button>
+        <button class="btn primary" id="calDone">Kész ✓</button>
+      </div>
+    </div>
+
+    <!-- shared tools for the marking steps -->
+    <div class="tools" id="tools">
+      <div class="readout-row">
+        <div class="readout" id="readout">Koppints egy fogantyúra.</div>
+        <button class="icon-btn small" id="btnCollapse" aria-label="Panel kicsinyítése" title="Panel kicsinyítése">▾</button>
+      </div>
+      <div class="row tool-row">
+        <button class="btn sq nudge" data-nudge="left" aria-label="Balra">◀</button>
+        <button class="btn sq nudge" data-nudge="up" aria-label="Fel">▲</button>
+        <button class="btn sq nudge" data-nudge="down" aria-label="Le">▼</button>
+        <button class="btn sq nudge" data-nudge="right" aria-label="Jobbra">▶</button>
+        <button class="btn small" id="btnStep" title="Lépésköz">0,05 mm</button>
+        <button class="btn small toggle" id="btnFine" title="Finom mozgatás (¼ sebesség)">Finom</button>
+      </div>
+    </div>
+
+    <!-- step 1: blade -->
+    <div class="step-panel" data-step="blade">
+      <div class="row wrap">
+        <button class="btn small toggle" id="btnMoveAll" title="Az egész sablon mozgatása">⤧ Mozgat</button>
+        <button class="btn small" data-rotate="-1">⟲ 0,2°</button>
+        <button class="btn small" data-rotate="1">⟳ 0,2°</button>
+        <button class="btn small" id="btnCenter">Középre</button>
+      </div>
+      <details class="values">
+        <summary>Pontos értékek (mm)</summary>
+        <div class="grid-form">
+          <label>Penge hossza (váll → hegy)<input data-field="blade.length" inputmode="decimal"></label>
+          <label>Penge magassága<input data-field="blade.height" inputmode="decimal"></label>
+          <label>Hegy csúcsa (hátsó éltől)<input data-field="blade.tipY" inputmode="decimal"></label>
+          <label>Felső letörés hossza<input data-field="blade.tipTop" inputmode="decimal"></label>
+          <label>Alsó letörés hossza<input data-field="blade.tipBack" inputmode="decimal"></label>
+          <label>Elforgatás (°)<input data-field="frame.angle" inputmode="decimal"></label>
+        </div>
+      </details>
+    </div>
+
+    <!-- step 2: cuts -->
+    <div class="step-panel" data-step="cuts">
+      <div class="row wrap">
+        <select id="cutStyle" class="btn small" aria-label="Bevágás típusa">
+          <option value="v">V-alakú bevágások</option>
+          <option value="free">Szabad vonal</option>
+        </select>
+        <button class="btn small" id="btnEven" title="A bevágások egyenletes elosztása az első és az utolsó között">Egyenletes távolság</button>
+        <button class="btn small danger" id="btnDelCut">Törlés</button>
+      </div>
+      <details class="values">
+        <summary>Beállítások és értékek</summary>
+        <div class="grid-form">
+          <label>Bevágás szöge (°)<input data-field="cuts.angle" inputmode="decimal"></label>
+          <label>Bevágás talpa (mm)<input data-field="cuts.flat" inputmode="decimal"></label>
+          <label class="check"><input type="checkbox" id="chkDouble"> Kétoldalú kulcs (mindkét élen tükrözött bevágások)</label>
+        </div>
+        <div id="cutList" class="cut-list"></div>
+        <button class="btn small" id="btnClearCuts">Összes bevágás törlése</button>
+      </details>
+    </div>
+
+    <!-- step 3: head -->
+    <div class="step-panel" data-step="head">
+      <div class="row wrap">
+        <label class="check"><input type="checkbox" id="chkHole"> Kulcskarika lyuk</label>
+        <label class="inline">átmérő <input data-field="head.holeD" inputmode="decimal" class="short"> mm</label>
+      </div>
+      <details class="values">
+        <summary>Pontos értékek (mm)</summary>
+        <div class="grid-form">
+          <label>Fej hossza<input data-field="head.length" inputmode="decimal"></label>
+          <label>Fej szélessége<input data-field="head.width" inputmode="decimal"></label>
+          <label>Sarok lekerekítése (vég)<input data-field="head.rFar" inputmode="decimal"></label>
+          <label>Sarok lekerekítése (váll)<input data-field="head.rNear" inputmode="decimal"></label>
+        </div>
+      </details>
+    </div>
+
+    <!-- step 4: profile -->
+    <div class="step-panel" data-step="profile">
+      <div class="grid-form two">
+        <label>Penge vastagsága (mm)<input data-field="profile.thickness" inputmode="decimal"></label>
+        <label>Fej vastagsága (mm)<input data-field="profile.headThickness" inputmode="decimal"></label>
+      </div>
+      <div class="sub-title">Hosszanti hornyok (profil)</div>
+      <div id="grooveList" class="groove-list"></div>
+      <div class="row wrap">
+        <button class="btn small" id="btnAddGroove">+ Horony</button>
+        <button class="link-btn" data-help="profile">Hogyan mérjem?</button>
+      </div>
+      <div class="error" id="profileError" hidden></div>
+      <p class="muted note">A vastagabb fej erősebb és jobban fogható (3–4 mm ajánlott). A vastagítás nem a vállnál kezdődik, hanem 1 mm-rel mögötte, fokozatosan – így nem lesz gyenge pont a penge tövénél. A hornyokat csak annyira mélyítsd, amennyire kell: minden tized milliméter gyengíti a pengét.</p>
+    </div>
+
+    <!-- step 5: model -->
+    <div class="step-panel" data-step="model">
+      <div class="model-info" id="modelInfo">Modell készítése…</div>
+      <div class="error" id="modelError" hidden></div>
+      <div class="warn" id="modelWarn" hidden></div>
+      <div class="strength" id="strength" hidden>
+        <div class="row between wrap">
+          <span class="strength-title">Szilárdság: <span class="badge" id="strengthBadge"></span></span>
+          <select id="material" class="btn small" aria-label="Anyag"></select>
+        </div>
+        <div class="strength-text" id="strengthText"></div>
+      </div>
+      <div class="row wrap">
+        <label class="inline grow">Név <input id="projName" class="grow" maxlength="40"></label>
+      </div>
+      <div class="row wrap">
+        <button class="btn primary" id="btnStl">⬇ STL letöltése</button>
+        <button class="btn" id="btnShare" hidden>Megosztás…</button>
+        <button class="btn" id="btnSaveJson">Projekt mentése</button>
+      </div>
+      <p class="muted note" id="zipNote" hidden>Itt az STL egy ZIP fájlban érkezik. Telefonon a Fájlok appban koppints rá a kibontáshoz, vagy küldd át a számítógépre, és ott nyisd meg a szeletelőben.</p>
+      <details class="values">
+        <summary>Nyomtatási és használati tippek (szilárdság)</summary>
+        <ul class="tips">
+          <li><b>Anyag:</b> a legerősebb a szénszálas nylon (PA-CF) vagy a PC, utána a nylon és a PETG. A PLA merev, de rideg: figyelmeztetés nélkül, hirtelen törik.</li>
+          <li><b>Kitöltés és falak:</b> 100% kitöltés, 5–6 fal (perimeter), 5+ alsó/felső réteg – a kulcs így gyakorlatilag tömör lesz.</li>
+          <li><b>Rétegtapadás:</b> a fúvóka hőmérsékletét az anyag ajánlott tartományának felső részére állítsd, PETG/nylon esetén kevés hűtéssel, lassabb sebességgel.</li>
+          <li><b>Helyzet:</b> lapjára fektetve nyomtasd, ahogy a modell áll – így a csavaró erőt a szálak veszik fel, nem a rétegek közötti tapadás. Támasz nem kell.</li>
+          <li><b>Pontosság:</b> 0,1–0,12 mm réteg, 0,4 mm-es (vagy kisebb) fúvóka. Ha szorul a zárban, ne a hornyokat mélyítsd (az gyengíti a pengét), hanem a szeletelőben állíts −0,05…−0,1 mm XY méretkorrekciót (PrusaSlicer: <i>XY Size Compensation</i>, Cura: <i>Horizontal Expansion</i>, Bambu/Orca: <i>X-Y contour compensation</i>), és kapcsold be az „elefántláb” kompenzációt.</li>
+          <li><b>Első próba nyitott ajtónál!</b> Így ha valami nem stimmel, nem zárod ki magad, és nyugodtan kiveheted.</li>
+          <li><b>Ne erőltesd:</b> fújd be a zárat zárspray-vel vagy grafitporral, a kulcsot tolja be teljesen ütközésig, és csak könnyedén fordítsd. Ha nem fordul magától, húzd ki, és pontosíts a jelölésen – ne fogóval, ne nagy erővel.</li>
+          <li>Tartós használatra a nyomtatott kulcsot inkább mintának használd: egy kulcsmásoló ebből fém kulcsot tud vágni.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true">
+      <div id="sheetBody"></div>
+      <div class="row end"><button class="btn primary" id="sheetClose">Rendben</button></div>
+    </div>
+  </div>
+
+  <div id="menu" class="sheet" hidden>
+    <div class="sheet-card menu-card" role="menu">
+      <button class="menu-item" data-menu="calib">📏 Kalibrálás</button>
+      <button class="menu-item" data-menu="center">⌖ Sablon a képernyő közepére</button>
+      <button class="menu-item" data-menu="fullscreen">⛶ Teljes képernyő</button>
+      <button class="menu-item" data-menu="theme">◐ Háttér: <span id="themeName">világos</span></button>
+      <button class="menu-item" data-menu="grid">▦ Milliméteres rács: <span id="gridName">be</span></button>
+      <button class="menu-item" data-menu="save">💾 Projekt mentése fájlba</button>
+      <button class="menu-item" data-menu="load">📂 Projekt betöltése fájlból</button>
+      <button class="menu-item" data-menu="new">✚ Új kulcs</button>
+      <button class="menu-item" data-menu="intro">ℹ Bemutató és tudnivalók</button>
+      <div class="row end"><button class="btn" id="menuClose">Bezár</button></div>
+    </div>
+  </div>
+
+  <div id="confirm" class="sheet" hidden>
+    <div class="sheet-card" role="alertdialog" aria-modal="true" aria-labelledby="confirmText">
+      <p id="confirmText"></p>
+      <div class="row end">
+        <button class="btn" id="confirmNo">Mégse</button>
+        <button class="btn primary" id="confirmYes">Igen</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".json,application/json" hidden>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>

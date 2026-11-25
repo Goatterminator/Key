@@ -148,5 +148,63 @@ if (persisted[0] !== 5 || !persisted[1]) fail('state not persisted: ' + persiste
 
 if (errors.length) fail('page errors:\n' + errors.join('\n'));
 await browser.close();
-server.close();
 console.log(process.exitCode ? 'E2E FAILED' : 'E2E OK');
+
+// ---- the same app inside a claude.ai artifact: saving goes through the viewer -------
+{
+  const browser2 = await chromium.launch();
+  const ctx2 = await browser2.newContext({ ...devices['iPhone 13'] });
+  await ctx2.addInitScript(() => {
+    window.__saved = [];
+    window.claude = {
+      use: async (name) =>
+        name === 'downloads'
+          ? {
+              save: async ({ filename, data }) => {
+                const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data.buffer ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) : data);
+                window.__saved.push({ filename, bytes: Array.from(bytes) });
+                return { status: 'saved' };
+              },
+            }
+          : null,
+    };
+  });
+  const p2 = await ctx2.newPage();
+  const errs2 = [];
+  p2.on('pageerror', (e) => errs2.push(e.message));
+  await p2.goto(base);
+  await p2.click('#sheetClose');
+  await p2.click('#calDone');
+  await p2.evaluate(() => {
+    app.project.cuts.points = [{ x: 5, y: 6 }, { x: 9, y: 5 }];
+    app.changed();
+  });
+  // in-page confirmation replaces confirm()
+  await p2.click('#btnMenu');
+  await p2.click('[data-menu="new"]');
+  await p2.waitForSelector('#confirm:not([hidden])');
+  await p2.click('#confirmNo');
+  if ((await p2.evaluate(() => app.project.cuts.points.length)) !== 2) fail('cancel in confirm dialog changed the project');
+  for (let i = 0; i < 4; i++) await p2.click('#btnNext');
+  await p2.waitForSelector('#modelInfo .ok');
+  if ((await p2.textContent('#btnStl')).indexOf('ZIP') < 0) fail('artifact mode label');
+  await p2.click('#btnStl');
+  await p2.waitForFunction(() => window.__saved.length === 1);
+  const saved = await p2.evaluate(() => window.__saved[0]);
+  if (!saved.filename.endsWith('.zip')) fail('expected a zip, got ' + saved.filename);
+  const zip = Buffer.from(saved.bytes);
+  const eocd = zip.length - 22;
+  const cd = zip.readUInt32LE(eocd + 16);
+  const nameLen = zip.readUInt16LE(cd + 28);
+  const inner = zip.subarray(cd + 46, cd + 46 + nameLen).toString();
+  const stlLen = zip.readUInt32LE(cd + 24);
+  const stl = zip.subarray(30 + zip.readUInt16LE(26), 30 + zip.readUInt16LE(26) + stlLen);
+  if (!inner.endsWith('.stl') || stl.length !== 84 + stl.readUInt32LE(80) * 50) fail('zip does not hold a valid STL');
+  console.log(`artifact mode: ${saved.filename} -> ${inner}, ${stl.readUInt32LE(80)} triangles`);
+  await p2.click('#btnSaveJson');
+  await p2.waitForFunction(() => window.__saved.length === 2);
+  if (errs2.length) fail('artifact page errors:\n' + errs2.join('\n'));
+  await browser2.close();
+  console.log(process.exitCode ? 'E2E (artifact) FAILED' : 'E2E (artifact) OK');
+}
+server.close();

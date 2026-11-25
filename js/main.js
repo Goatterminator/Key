@@ -9,6 +9,7 @@ import { handlesFor, moveHandle, describeHandle, ROT_ARM } from './handles.js';
 import { toScreen, deltaToModel, rotateFrame, toModel } from './frame.js';
 import { fmt, parseNum, clamp, DEG, escapeHtml } from './util.js';
 import { HELP, INTRO } from './help.js';
+import { makeZip } from './zip.js';
 
 const STEPS = ['blade', 'cuts', 'head', 'profile', 'model'];
 const MARK_STEPS = ['blade', 'cuts', 'head'];
@@ -24,6 +25,12 @@ const LS_PROJECT = 'kulcsmasolo.project.v1';
 
 const $ = (id) => document.getElementById(id);
 const isCoarse = matchMedia('(pointer: coarse)').matches;
+
+// Inside a claude.ai artifact the page runs in a locked-down frame: files can only be
+// saved through the viewer's `downloads` capability (and .stl is not an allowed type
+// there, so the STL goes into a .zip), dialogs and service workers are not available.
+const IN_ARTIFACT = !!(window.claude && typeof window.claude.use === 'function');
+let downloadsApi = null;
 
 function readLS(key) {
   try {
@@ -512,33 +519,69 @@ function fileBase() {
   return n || 'kulcs';
 }
 
-function stlFile() {
+function stlBytes() {
   if (!app.mesh) return null;
-  const buf = toBinarySTL(app.mesh.positions, app.mesh.indices, app.project.name);
-  return new File([buf], fileBase() + '.stl', { type: 'model/stl' });
+  return new Uint8Array(toBinarySTL(app.mesh.positions, app.mesh.indices, app.project.name));
 }
 
-function download(file) {
-  const url = URL.createObjectURL(file);
+/** Saves a file: a normal browser download, or the viewer's save dialog in an artifact. */
+async function saveFile(name, data, type) {
+  if (IN_ARTIFACT) {
+    if (!downloadsApi) {
+      toast('A letöltés itt nem érhető el. Nyisd meg az oldalt böngészőben.', 4000);
+      return false;
+    }
+    try {
+      await downloadsApi.save({ filename: name, data });
+      toast(`${name} mentve`);
+      return true;
+    } catch (err) {
+      const code = err && err.code;
+      if (code === 'declined') return false;
+      if (code === 'rate_limited') toast('Egy mentés már folyamatban van, próbáld újra pár másodperc múlva.');
+      else if (code === 'host_unavailable') toast('Ez az alkalmazás nem tud fájlt menteni. Nyisd meg az oldalt böngészőben vagy számítógépen.', 5000);
+      else toast('A mentés nem sikerült.');
+      return false;
+    }
+  }
+  const url = URL.createObjectURL(new Blob([data], { type }));
   const a = document.createElement('a');
   a.href = url;
-  a.download = file.name;
+  a.download = name;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  toast(`${name} letöltve`);
+  return true;
 }
 
 function downloadStl() {
-  const f = stlFile();
-  if (!f) return toast('Előbb javítsd a hibát, utána tölthető le a modell.');
-  download(f);
-  toast(`${f.name} letöltve`);
+  const stl = stlBytes();
+  if (!stl) return toast('Előbb javítsd a hibát, utána tölthető le a modell.');
+  const name = fileBase() + '.stl';
+  if (IN_ARTIFACT) saveFile(fileBase() + '.zip', makeZip([{ name, data: stl }]), 'application/zip');
+  else saveFile(name, stl, 'model/stl');
 }
 
 function saveJson() {
-  const data = JSON.stringify(app.project, null, 2);
-  download(new File([data], fileBase() + '.kulcs.json', { type: 'application/json' }));
+  saveFile(fileBase() + '.kulcs.json', JSON.stringify(app.project, null, 2), 'application/json');
+}
+
+/** In-page confirmation (native confirm() is not available everywhere). */
+function askConfirm(text, okLabel = 'Igen') {
+  return new Promise((resolve) => {
+    $('confirmText').textContent = text;
+    $('confirmYes').textContent = okLabel;
+    $('confirm').hidden = false;
+    const done = (v) => {
+      $('confirm').hidden = true;
+      $('confirmYes').onclick = $('confirmNo').onclick = null;
+      resolve(v);
+    };
+    $('confirmYes').onclick = () => done(true);
+    $('confirmNo').onclick = () => done(false);
+  });
 }
 
 function chromeDark() {
@@ -748,10 +791,10 @@ function bind() {
     const xs = pts.map((q) => q.x);
     toast(`Bevágások távolsága: ${fmt((Math.max(...xs) - Math.min(...xs)) / (pts.length - 1), 2)} mm`);
   });
-  $('btnClearCuts').addEventListener('click', () => {
-    if (!app.project.cuts.points.length || !confirm('Biztosan törlöd az összes bevágást?')) return;
-    app.act('clear', () => (app.project.cuts.points = []));
+  $('btnClearCuts').addEventListener('click', async () => {
+    if (!app.project.cuts.points.length || !(await askConfirm('Biztosan törlöd az összes bevágást?', 'Törlés'))) return;
     app.selected = null;
+    app.act('clear', () => (app.project.cuts.points = []));
   });
   $('cutList').addEventListener('change', (e) => {
     const row = e.target.closest('.cut-row');
@@ -810,7 +853,7 @@ function bind() {
   $('btnStl').addEventListener('click', downloadStl);
   $('btnSaveJson').addEventListener('click', saveJson);
   $('projName').addEventListener('change', (e) => app.act('name', () => (app.project.name = e.target.value.trim() || 'Kulcs')));
-  if (navigator.canShare) {
+  if (navigator.canShare && !IN_ARTIFACT) {
     try {
       if (navigator.canShare({ files: [new File(['x'], 'a.stl', { type: 'model/stl' })] })) $('btnShare').hidden = false;
     } catch {
@@ -818,8 +861,9 @@ function bind() {
     }
   }
   $('btnShare').addEventListener('click', async () => {
-    const f = stlFile();
-    if (!f) return;
+    const stl = stlBytes();
+    if (!stl) return;
+    const f = new File([stl], fileBase() + '.stl', { type: 'model/stl' });
     try {
       await navigator.share({ files: [f], title: app.project.name });
     } catch (err) {
@@ -914,12 +958,14 @@ function menuAction(a) {
       $('fileInput').click();
       break;
     case 'new':
-      if (!confirm('Új kulcsot kezdesz? A jelenlegi jelölések elvesznek (előtte mentheted fájlba).')) break;
-      app.undo.push(app.snapshot());
-      app.project = defaultProject();
-      app.selected = null;
-      app.centerTemplate();
-      setStep('blade');
+      askConfirm('Új kulcsot kezdesz? A jelenlegi jelölések elvesznek (előtte mentheted fájlba).', 'Új kulcs').then((ok) => {
+        if (!ok) return;
+        app.undo.push(app.snapshot());
+        app.project = defaultProject();
+        app.selected = null;
+        app.centerTemplate();
+        setStep('blade');
+      });
       break;
     case 'intro':
       showSheet(INTRO);
@@ -960,7 +1006,14 @@ function start() {
   }
   if (!app.settings.introSeen) showSheet(INTRO);
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  if (IN_ARTIFACT) {
+    $('btnStl').textContent = '⬇ STL letöltése (ZIP)';
+    $('zipNote').hidden = false;
+    window.claude
+      .use('downloads')
+      .then((d) => (downloadsApi = d))
+      .catch(() => {});
+  } else if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
   window.app = app; // handy for debugging
