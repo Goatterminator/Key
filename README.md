@@ -33,10 +33,24 @@ python3 -m http.server 8080
 
 Telefonon a legkényelmesebb **HTTPS** alatt elérhetővé tenni, például **GitHub Pages**-szel: a repó *Settings → Pages* oldalán válaszd a „Deploy from a branch” opciót, az ágat és a `/ (root)` mappát. Ezután a telefonon nyisd meg az oldalt, és add hozzá a kezdőképernyőhöz – így teljes képernyőn fut, és a nézet nem mozdul el jelölés közben.
 
+## Szilárdság
+
+Egy nyomtatott műanyag kulcs nagyjából tízszer gyengébb a sárgarézénél, ezért az app több dolgot is tesz azért, hogy ne törjön bele a zárba:
+
+- **Fokozatos vastagítás a váll mögött:** a vastagabb fej (alapból 3,2 mm) nem éles lépcsővel kezdődik a vállnál – ott van a penge legterheltebb keresztmetszete –, hanem 1 mm-rel mögötte, 0,2 mm-es lépcsőkben, ahol a keresztmetszet már a fej teljes szélessége.
+- **Tömör váll-környék:** a kulcskarika lyuk nem kerülhet a váll és a vastagítás közelébe, és körülötte is marad legalább 1,5 mm anyag.
+- **Szilárdsági becslés a 3D lépésben:** végigméri a pengét, megkeresi a leggyengébb keresztmetszetet (a 3D nézetben piros gyűrű), és a kiválasztott anyagra (PLA, PETG, ABS, nylon, PC, szénszálas) becsli, mekkora csavarást bír a fejnél. Értékelés: jó / közepes / gyenge. Ez durva becslés, arra jó, hogy lásd, mi erősít és mi gyengít.
+
+A legtöbbet a nyomtatás és a használat számít:
+
+- Anyag: szénszálas nylon (PA-CF) vagy PC a legerősebb, utána nylon és PETG. A PLA rideg, hirtelen törik.
+- 100% kitöltés, 5–6 fal, magasabb fúvóka-hőmérséklet (jobb rétegtapadás), lapjára fektetve.
+- A hornyokat ne mélyítsd jobban, mint az eredetin; ha szorul, inkább a szeletelő XY-korrekcióját használd.
+- Először **nyitott ajtónál** próbáld ki, fújd be a zárat zárspray-vel vagy grafitporral, és ne erőltesd.
+
 ## Nyomtatási tippek
 
-- Anyag: PETG vagy PLA+ (a nylon/PC a legerősebb).
-- Rétegvastagság 0,1–0,12 mm, 0,4 mm-es (vagy kisebb) fúvóka, 100% kitöltés, 3–4 fal.
+- Rétegvastagság 0,1–0,12 mm, 0,4 mm-es (vagy kisebb) fúvóka.
 - A modell már nyomtatási helyzetben van (lapjára fektetve, a képernyőhöz érő oldala lent), támasz nem kell.
 - Ha szorul: XY méretkorrekció −0,05…−0,1 mm (PrusaSlicer: *XY Size Compensation*, Cura: *Horizontal Expansion*), és „elefántláb” kompenzáció.
 

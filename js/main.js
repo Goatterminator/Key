@@ -1,6 +1,6 @@
 // Application shell: state, steps, panels, persistence.
 
-import { defaultProject, normalizeProject, keyOutline, keyMesh, profileProblem } from './geometry.js';
+import { defaultProject, normalizeProject, keyOutline, keyMesh, profileProblem, strengthReport, MATERIALS } from './geometry.js';
 import { checkMesh } from './mesh.js';
 import { toBinarySTL } from './stl.js';
 import { Viewer } from './viewer.js';
@@ -71,7 +71,7 @@ const FIELDS = {
 
 const app = {
   settings: Object.assign(
-    { pxPerMm: isCoarse ? 6.3 : 96 / 25.4, calibrated: false, stageTheme: 'light', grid: true, nudge: 0.05, step: 'blade', introSeen: false },
+    { pxPerMm: isCoarse ? 6.3 : 96 / 25.4, calibrated: false, stageTheme: 'light', grid: true, nudge: 0.05, step: 'blade', introSeen: false, material: 'petg' },
     readLS(LS_SETTINGS) || {},
   ),
   project: null,
@@ -459,6 +459,7 @@ function buildModel() {
       `${c.triangles.toLocaleString('hu-HU')} háromszög · ${fmt(c.volume / 1000, 2)} cm³ · ` +
       (c.watertight ? '<span class="ok">✔ zárt, nyomtatható háló</span>' : '⚠ a háló nem zárt') +
       `<span class="muted"> · ${ms} ms</span>`;
+    renderStrength();
     if (m.warnings.length) {
       $('modelWarn').hidden = false;
       $('modelWarn').textContent = m.warnings.join(' ');
@@ -472,6 +473,33 @@ function buildModel() {
     $('modelInfo').textContent = '';
     $('modelError').hidden = false;
     $('modelError').textContent = 'Nem sikerült a modellt elkészíteni: ' + err.message;
+  }
+}
+
+const RATING = {
+  good: ['Jó', 'könnyen járó zárhoz elegendő.'],
+  ok: ['Közepes', 'csak könnyen járó zárhoz, óvatosan.'],
+  weak: ['Gyenge', 'nagy a törés veszélye.'],
+};
+
+function renderStrength() {
+  const box = $('strength');
+  const r = app.mesh ? strengthReport(app.project, app.settings.material) : null;
+  box.hidden = !r;
+  if (viewer) viewer.setMarker(null);
+  if (!r) return;
+  const [label, advice] = RATING[r.rating];
+  $('strengthBadge').className = 'badge ' + r.rating;
+  $('strengthBadge').textContent = label;
+  $('strengthText').innerHTML =
+    `Leggyengébb pont: <b>${fmt(r.x, 1)} mm-re a vállól</b> (piros gyűrű). ` +
+    `Becsült törőnyomaték: <b>~${fmt(r.effectiveNm, 2)} N·m</b> – ${advice} ` +
+    `<button class="link-btn" data-help="strength">Mit jelent?</button>`;
+  if (viewer) {
+    // red ring around the blade at the weakest cross-section (F space: y is negated)
+    const x = r.x;
+    const T = app.project.profile.thickness;
+    viewer.setMarker([x, -r.b, 0, x, -r.t, 0, x, -r.t, T, x, -r.b, T]);
   }
 }
 
@@ -574,7 +602,10 @@ function bind() {
     updateUndo();
   });
   $('btnHelp').addEventListener('click', () => showSheet(HELP[app.step] || INTRO));
-  document.querySelectorAll('[data-help]').forEach((b) => b.addEventListener('click', () => showSheet(HELP[b.dataset.help])));
+  document.addEventListener('click', (e) => {
+    const b = e.target.closest && e.target.closest('[data-help]');
+    if (b) showSheet(HELP[b.dataset.help]);
+  });
   $('sheetClose').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', (e) => {
     if (e.target === $('sheet')) closeSheet();
@@ -766,6 +797,16 @@ function bind() {
   });
 
   // model
+  $('material').innerHTML = Object.entries(MATERIALS)
+    .map(([k, m]) => `<option value="${k}">${escapeHtml(m.name)}</option>`)
+    .join('');
+  $('material').value = MATERIALS[app.settings.material] ? app.settings.material : 'petg';
+  $('material').addEventListener('change', (e) => {
+    app.settings.material = e.target.value;
+    app.saveSettings();
+    renderStrength();
+    toast(MATERIALS[e.target.value].note);
+  });
   $('btnStl').addEventListener('click', downloadStl);
   $('btnSaveJson').addEventListener('click', saveJson);
   $('projName').addEventListener('change', (e) => app.act('name', () => (app.project.name = e.target.value.trim() || 'Kulcs')));

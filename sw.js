@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from the cache and refresh it in the background.
-const CACHE = 'kulcsmasolo-v1';
+const CACHE = 'kulcsmasolo-v2';
 const SHELL = [
   './',
   'index.html',

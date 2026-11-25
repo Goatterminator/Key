@@ -687,3 +687,49 @@ select.btn.small {
 .tool-row .btn.small {
   padding: 0 9px;
 }
+
+.strength {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 6px 10px 8px;
+  margin: 4px 0 6px;
+}
+
+.strength-title {
+  font-weight: 600;
+}
+
+.strength-text {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.strength-text b {
+  color: var(--ink);
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.badge.good {
+  background: #138a3a;
+}
+
+.badge.ok {
+  background: #b26a00;
+}
+
+.badge.weak {
+  background: #c0261c;
+}
+
+p.note {
+  margin: 6px 0 2px;
+  line-height: 1.35;
+}

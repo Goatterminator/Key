@@ -135,6 +135,7 @@
         <button class="link-btn" data-help="profile">Hogyan mérjem?</button>
       </div>
       <div class="error" id="profileError" hidden></div>
+      <p class="muted note">A vastagabb fej erősebb és jobban fogható (3–4 mm ajánlott). A vastagítás nem a vállnál kezdődik, hanem 1 mm-rel mögötte, fokozatosan – így nem lesz gyenge pont a penge tövénél. A hornyokat csak annyira mélyítsd, amennyire kell: minden tized milliméter gyengíti a pengét.</p>
     </div>
 
     <!-- step 5: model -->
@@ -142,6 +143,13 @@
       <div class="model-info" id="modelInfo">Modell készítése…</div>
       <div class="error" id="modelError" hidden></div>
       <div class="warn" id="modelWarn" hidden></div>
+      <div class="strength" id="strength" hidden>
+        <div class="row between wrap">
+          <span class="strength-title">Szilárdság: <span class="badge" id="strengthBadge"></span></span>
+          <select id="material" class="btn small" aria-label="Anyag"></select>
+        </div>
+        <div class="strength-text" id="strengthText"></div>
+      </div>
       <div class="row wrap">
         <label class="inline grow">Név <input id="projName" class="grow" maxlength="40"></label>
       </div>
@@ -151,13 +159,16 @@
         <button class="btn" id="btnSaveJson">Projekt mentése</button>
       </div>
       <details class="values">
-        <summary>Nyomtatási tippek</summary>
+        <summary>Nyomtatási és használati tippek (szilárdság)</summary>
         <ul class="tips">
-          <li><b>Anyag:</b> PETG vagy PLA+ (a nylon / PC a legerősebb).</li>
-          <li><b>Rétegvastagság:</b> 0,1–0,12 mm; 0,4 mm-es fúvóka (a 0,2 mm-es még pontosabb).</li>
-          <li><b>Kitöltés:</b> 100%, legalább 3–4 fal. A modell már nyomtatási helyzetben van, támasz nem kell.</li>
-          <li><b>Ha szorul a zárban:</b> a szeletelőben állíts −0,05…−0,1 mm XY méretkorrekciót (PrusaSlicer: <i>XY Size Compensation</i>, Cura: <i>Horizontal Expansion</i>, Bambu/Orca: <i>X-Y hole/contour compensation</i>), és kapcsold be az „elefántláb” kompenzációt.</li>
-          <li><b>Óvatosan!</b> A műanyag kulcs eltörhet a zárban. Ne erőltesd, használd tesztre, vészhelyzetre, vagy mintaként fémkulcs készítéséhez.</li>
+          <li><b>Anyag:</b> a legerősebb a szénszálas nylon (PA-CF) vagy a PC, utána a nylon és a PETG. A PLA merev, de rideg: figyelmeztetés nélkül, hirtelen törik.</li>
+          <li><b>Kitöltés és falak:</b> 100% kitöltés, 5–6 fal (perimeter), 5+ alsó/felső réteg – a kulcs így gyakorlatilag tömör lesz.</li>
+          <li><b>Rétegtapadás:</b> a fúvóka hőmérsékletét az anyag ajánlott tartományának felső részére állítsd, PETG/nylon esetén kevés hűtéssel, lassabb sebességgel.</li>
+          <li><b>Helyzet:</b> lapjára fektetve nyomtasd, ahogy a modell áll – így a csavaró erőt a szálak veszik fel, nem a rétegek közötti tapadás. Támasz nem kell.</li>
+          <li><b>Pontosság:</b> 0,1–0,12 mm réteg, 0,4 mm-es (vagy kisebb) fúvóka. Ha szorul a zárban, ne a hornyokat mélyítsd (az gyengíti a pengét), hanem a szeletelőben állíts −0,05…−0,1 mm XY méretkorrekciót (PrusaSlicer: <i>XY Size Compensation</i>, Cura: <i>Horizontal Expansion</i>, Bambu/Orca: <i>X-Y contour compensation</i>), és kapcsold be az „elefántláb” kompenzációt.</li>
+          <li><b>Első próba nyitott ajtónál!</b> Így ha valami nem stimmel, nem zárod ki magad, és nyugodtan kiveheted.</li>
+          <li><b>Ne erőltesd:</b> fújd be a zárat zárspray-vel vagy grafitporral, a kulcsot tolja be teljesen ütközésig, és csak könnyedén fordítsd. Ha nem fordul magától, húzd ki, és pontosíts a jelölésen – ne fogóval, ne nagy erővel.</li>
+          <li>Tartós használatra a nyomtatott kulcsot inkább mintának használd: egy kulcsmásoló ebből fém kulcsot tud vágni.</li>
         </ul>
       </details>
     </div>

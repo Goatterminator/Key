@@ -76,10 +76,32 @@ export const HELP = {
     </ul>
   </li>
 </ol>
-<p>A rajz a penge keresztmetszetét mutatja nagyítva. Ha a kulcs szorul, inkább pár tizeddel mélyebb és szélesebb hornyot adj meg.</p>`,
+<p>A rajz a penge keresztmetszetét mutatja nagyítva.</p>
+<h3>Szilárdság</h3>
+<p>A hornyok gyengítik a pengét, ezért csak annyira mélyek legyenek, amennyire a kulcs eredetije. Ha a nyomtatott kulcs szorul, inkább a szeletelő XY-korrekciójával vékonyíts (lásd a 3D lépés tippjeit). A fej lehet vastagabb (3–4 mm): az app a váll mögött fokozatosan vastagítja, így nem keletkezik gyenge pont a penge tövénél.</p>`,
   model: `
 <h2>5. 3D modell</h2>
 <p>Egy ujjal forgasd, két ujjal nagyítsd, dupla koppintással állítsd vissza a nézetet.</p>
 <p>Az STL fájlt nyisd meg a szeletelő programban (PrusaSlicer, Cura, Bambu Studio, OrcaSlicer). A modell milliméterben van és már nyomtatási helyzetben áll: a képernyőhöz érő oldala kerül a tálcára.</p>
-<p>Érdemes először egy próbát nyomtatni, és a képernyőn a sablonra téve összevetni az eredetivel.</p>`,
+<p>A <b>Szilárdság</b> doboz megmutatja a penge leggyengébb pontját (a 3D nézetben piros gyűrű), és a kiválasztott anyagra becsüli, mekkora csavarást bír. Ez durva becslés – arra jó, hogy lásd, melyik beállítás erősít vagy gyengít.</p>
+<p>Érdemes először egy próbát nyomtatni, a képernyőn a sablonra téve összevetni az eredetivel, és <b>nyitott ajtónál</b>, óvatosan kipróbálni. Ha nem fordul könnyedén, ne erőltesd.</p>`,
+  strength: `
+<h2>Szilárdság</h2>
+<p>Kulcs elfordításakor a fejre ható csavarást a penge adja át a zárnak. A nyomtatott műanyag kb. tízszer gyengébb a sárgarézénél, ezért ez a legfontosabb kérdés.</p>
+<p>Az app végigméri a pengét, és megkeresi azt a keresztmetszetet, amely a legkevésbé bírja a rá jutó terhelést – ez általában a váll közelében lévő mély bevágás. A <b>becsült törőnyomaték</b> az a csavarás a fejnél, amelynél ott eltörhet (100% kitöltésű nyomtatásnál, a kiválasztott anyaggal). <b>Durva becslés</b>: a valós érték a nyomtatótól, a beállításoktól és a rétegtapadástól is függ.</p>
+<p>Összehasonlításul: egy jól járó zárhenger elfordításához jellemzően 0,1–0,3 N·m kell, egy szoruló zárhoz vagy nehezen járó reteszhez ennél több is.</p>
+<h3>Mi teszi erősebbé?</h3>
+<ul>
+  <li><b>Anyag:</b> szénszálas nylon (PA-CF) vagy PC a legjobb, utána nylon és PETG. A PLA hirtelen, figyelmeztetés nélkül törik.</li>
+  <li><b>Nyomtatás:</b> 100% kitöltés, 5–6 fal, magasabb fúvóka-hőmérséklet, lapjára fektetve.</li>
+  <li><b>Hornyok:</b> csak annyira mélyek legyenek, mint az eredetin – a túl mély horony sokat gyengít.</li>
+  <li><b>Vastagabb fej</b> (3–4 mm): a fej nem törik el, és jobban fogható. Az app a váll mögött fokozatosan vastagít, így a penge töve nem gyengül.</li>
+</ul>
+<h3>Használat</h3>
+<ul>
+  <li>Először <b>nyitott ajtónál</b> próbáld ki.</li>
+  <li>Fújd be a zárat zárspray-vel vagy grafitporral, told be a kulcsot ütközésig, és csak könnyedén fordítsd.</li>
+  <li>Ha nem fordul magától: ne erőltesd, ne használj fogót – húzd ki, és pontosíts.</li>
+  <li>Tartós használatra a nyomtatott kulcsot inkább mintaként vidd el egy kulcsmásolóhoz.</li>
+</ul>`,
 };

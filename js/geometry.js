@@ -16,6 +16,28 @@ import { extrude25D } from './mesh.js';
 export const MIN_MATERIAL = 0.6; // thinnest allowed blade between the two edges (mm)
 const SAMPLE_STEP = 0.02; // edge sampling step (mm)
 
+// Strength: the head does not get thicker right at the shoulder (that step would put a
+// stress concentration exactly into the most loaded cross-section of the blade). It keeps
+// the blade thickness for RAMP_START mm behind the shoulder and then thickens in small
+// steps, where the section is already as wide as the head.
+export const RAMP_START = 1.0; // mm behind the shoulder
+const RAMP_STEP = 0.2; // thickness increment per step (mm)
+const HOLE_MARGIN = 1.5; // solid material around the key-ring hole (mm)
+const SHOULDER_SOLID = 4; // solid head material behind the shoulder before the hole (mm)
+
+/**
+ * Rough in-plane shear strength of 100% infill prints (N/mm²). Used only for the
+ * indicative strength estimate, real values depend a lot on the printer and settings.
+ */
+export const MATERIALS = {
+  pla: { name: 'PLA / PLA+', tau: 22, note: 'merev, de rideg: figyelmeztetés nélkül, hirtelen törik' },
+  petg: { name: 'PETG', tau: 20, note: 'szívósabb, törés előtt kicsit enged' },
+  abs: { name: 'ABS / ASA', tau: 18, note: 'közepes szilárdság' },
+  pa: { name: 'Nylon (PA)', tau: 24, note: 'nagyon szívós, nehezen törik' },
+  pc: { name: 'PC (polikarbonát)', tau: 30, note: 'erős és szívós' },
+  cf: { name: 'PA-CF / PC-CF (szénszálas)', tau: 34, note: 'a legerősebb nyomtatható választás' },
+};
+
 export function defaultProject() {
   return {
     v: 1,
@@ -24,7 +46,7 @@ export function defaultProject() {
     blade: { length: 30, height: 8.5, tipY: 4, tipTop: 3, tipBack: 1.5 },
     cuts: { style: 'v', angle: 90, flat: 0.5, doubleSided: false, points: [] },
     head: { length: 22, top: 16.75, bottom: -8.25, rFar: 9, rNear: 1, hole: true, holeX: -16.5, holeY: 4.25, holeD: 4.5 },
-    profile: { thickness: 2.0, headThickness: 2.6, grooves: [] },
+    profile: { thickness: 2.0, headThickness: 3.2, grooves: [] },
   };
 }
 
@@ -274,15 +296,20 @@ export function keyOutline(p) {
     const r = p.head.holeD / 2;
     const { holeX: hx, holeY: hy } = p.head;
     const sd = sdRoundBox(hx, hy, -Lh / 2, (ht + hb) / 2, Lh / 2, (ht - hb) / 2, rnTop, rnBot, rf);
-    if (sd <= -(r + 0.8)) {
+    const limit = holeShoulderLimit(p);
+    if (hx + r > -limit) {
+      warnings.push(
+        `A kulcskarika lyuk túl közel van a vállhoz: a szilárdság miatt legalább ${String(limit.toFixed(1)).replace('.', ',')} mm tömör anyag kell a váll mögött, ezért a lyuk kimarad. Told a fej vége felé.`,
+      );
+    } else if (sd > -(r + HOLE_MARGIN)) {
+      warnings.push('A kulcskarika lyuk nem fér el a fejben (körülötte legalább 1,5 mm anyag kell), ezért kimarad.');
+    } else {
       hole = [];
       const n = Math.max(24, Math.ceil((2 * Math.PI * r) / 0.3));
       for (let i = 0; i < n; i++) {
         const a = (-2 * Math.PI * i) / n; // clockwise
         hole.push([hx + r * Math.cos(a), hy + r * Math.sin(a)]);
       }
-    } else {
-      warnings.push('A kulcskarika lyuka nem fér el a fejben (legalább 0,8 mm anyag kell körülötte), ezért kimarad.');
     }
   }
 
@@ -310,11 +337,43 @@ export function profileProblem(p) {
   return null;
 }
 
+/** The stepped thickness transition from the blade to the head. */
+export function headRamp(p) {
+  const Tb = p.profile.thickness;
+  const Th = Math.max(p.profile.headThickness, Tb);
+  const dT = Th - Tb;
+  if (dT < 1e-6) return { Tb, Th, n: 0, len: 0, start: RAMP_START, end: RAMP_START };
+  const n = Math.max(1, Math.ceil(dT / RAMP_STEP - 1e-9));
+  const len = clamp(dT * 3, 1, 4);
+  return { Tb, Th, n, len, start: RAMP_START, end: RAMP_START + len };
+}
+
+/** Distances behind the shoulder where the ramp steps up. */
+function rampSteps(ramp) {
+  const res = [];
+  for (let k = 0; k < ramp.n; k++) res.push(ramp.start + (ramp.len * k) / ramp.n);
+  return res;
+}
+
+/** Top height of the head at x < 0. */
+export function headTop(ramp, x) {
+  const d = -x;
+  if (ramp.n === 0 || d <= ramp.start) return ramp.Tb;
+  if (d >= ramp.end) return ramp.Th;
+  const k = Math.min(ramp.n, Math.ceil(((d - ramp.start) / ramp.len) * ramp.n - 1e-9));
+  return ramp.Tb + ((ramp.Th - ramp.Tb) * k) / ramp.n;
+}
+
+/** The key-ring hole must stay at least this far behind the shoulder (mm). */
+export function holeShoulderLimit(p) {
+  const ramp = headRamp(p);
+  return Math.max(SHOULDER_SOLID, ramp.n ? ramp.end + HOLE_MARGIN : 0);
+}
+
 /** Height ranges [bottom, top] in F space for a point of the blade (x >= 0) or head. */
 export function zRangeAt(p, x, yK) {
   const Tb = p.profile.thickness;
-  const Th = Math.max(p.profile.headThickness, Tb);
-  if (x < 0) return [0, Th];
+  if (x < 0) return [0, headTop(headRamp(p), x)];
   let front = 0;
   let back = 0;
   for (const g of p.profile.grooves) {
@@ -324,6 +383,15 @@ export function zRangeAt(p, x, yK) {
     }
   }
   return [back, Tb - front];
+}
+
+/** Keeps a partition line clear of outline vertices (avoids exact vertex hits). */
+function clearOf(v, verts, axis) {
+  for (let guard = 0; guard < 20; guard++) {
+    if (!verts.some((q) => Math.abs(q[axis] - v) < 1e-4)) break;
+    v -= 3e-4;
+  }
+  return v;
 }
 
 function grooveLines(p, outline) {
@@ -367,6 +435,14 @@ export function keyMesh(p) {
       [xmax, -y],
     ]);
   }
+  const ramp = headRamp(p);
+  for (const d of rampSteps(ramp)) {
+    const x = clearOf(-d, o.outer, 0);
+    parts.push([
+      [x, -(o.head.hb - 1)],
+      [x, -(o.head.ht + 1)],
+    ]);
+  }
   const res = extrude25D(loops, parts, (x, yF) => zRangeAt(p, x, -yF));
 
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -380,4 +456,68 @@ export function keyMesh(p) {
     maxZ = Math.max(maxZ, P[i + 2]);
   }
   return { ...res, outline: o, warnings: o.warnings, size: [maxX - minX, maxY - minY, maxZ - minZ] };
+}
+
+// ---------------------------------------------------------------------------------------
+// Strength estimate
+
+/** Torsional properties of the blade cross-section at x (thin-strip approximation). */
+function sectionAt(p, x, b, t) {
+  const ys = [b, t];
+  for (const g of p.profile.grooves) {
+    for (const y of [g.from, g.from + g.width]) if (y > b && y < t) ys.push(y);
+  }
+  ys.sort((a, c) => a - c);
+  let sum = 0;
+  let tmax = 0;
+  let area = 0;
+  for (let i = 0; i + 1 < ys.length; i++) {
+    const w = ys[i + 1] - ys[i];
+    if (w <= 1e-9) continue;
+    const [lo, hi] = zRangeAt(p, Math.max(x, 0), (ys[i] + ys[i + 1]) / 2);
+    const th = hi - lo;
+    if (th <= 0) continue;
+    sum += (w * th ** 3) / 3;
+    tmax = Math.max(tmax, th);
+    area += w * th;
+  }
+  const W = t - b;
+  const J = sum * Math.max(0.3, 1 - (0.63 * tmax) / Math.max(W, 1e-6));
+  return { J, tmax, area, width: W };
+}
+
+/**
+ * Indicative torsion strength of the blade. The torque from the head is handed over to
+ * the lock gradually along the blade, so a cross-section near the shoulder carries more
+ * of it than one near the tip; the weakest point is the one with the lowest capacity
+ * relative to the share of the torque it has to carry.
+ */
+export function strengthReport(p, materialKey = 'petg') {
+  const mat = MATERIALS[materialKey] || MATERIALS.petg;
+  const e = bladeEdges(p);
+  const L = p.blade.length;
+  const end = Math.max(0, L - Math.max(p.blade.tipTop, p.blade.tipBack, 1));
+  let worst = null;
+  for (let x = 0; x <= end + 1e-9; x += 0.05) {
+    const [b, t] = e.edges(x);
+    const sec = sectionAt(p, x, b, t);
+    if (!(sec.J > 0)) continue;
+    const cap = (mat.tau * sec.J) / sec.tmax; // N·mm
+    const share = Math.max(0.15, 1 - x / L);
+    const eff = cap / share;
+    if (!worst || eff < worst.eff) worst = { x, b, t, cap, eff, area: sec.area };
+  }
+  if (!worst) return null;
+  const effNm = worst.eff / 1000;
+  return {
+    x: worst.x,
+    b: worst.b,
+    t: worst.t,
+    height: worst.t - worst.b,
+    area: worst.area,
+    capacityNm: worst.cap / 1000,
+    effectiveNm: effNm,
+    rating: effNm >= 0.3 ? 'good' : effNm >= 0.15 ? 'ok' : 'weak',
+    material: mat,
+  };
 }

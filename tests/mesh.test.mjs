@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extrude25D, checkMesh } from '../js/mesh.js';
-import { defaultProject, normalizeProject, keyMesh, keyOutline, bitting, profileProblem } from '../js/geometry.js';
+import { defaultProject, normalizeProject, keyMesh, keyOutline, bitting, profileProblem, strengthReport, headRamp, RAMP_START, MATERIALS } from '../js/geometry.js';
 
 const square = (x0, y0, x1, y1) => [
   [x0, y0],
@@ -117,7 +117,7 @@ test('default key without cuts is watertight', () => {
   const m = keyMesh(normalizeProject(defaultProject()));
   const c = assertSolid(m);
   assert.ok(m.size[0] > 50 && m.size[0] < 56, `length ${m.size[0]}`);
-  assert.ok(Math.abs(m.size[2] - 2.6) < 1e-6);
+  assert.ok(Math.abs(m.size[2] - 3.2) < 1e-6);
   assert.ok(c.degenerate === 0);
 });
 
@@ -194,9 +194,9 @@ test('very deep cuts are clamped to keep material', () => {
   assertSolid(keyMesh(p));
 });
 
-test('hole that does not fit is dropped with a warning', () => {
+test('hole too close to the shoulder is dropped with a warning', () => {
   const p = sampleProject((q) => {
-    q.head.holeX = -1;
+    q.head.holeX = -6;
     return q;
   });
   const m = keyMesh(p);
@@ -264,4 +264,41 @@ test('random projects are always watertight', () => {
     assert.ok(c.watertight, `project #${n} not watertight: ${JSON.stringify(c)}`);
     assert.ok(c.volume > 0);
   }
+});
+
+test('head thickens gradually, starting behind the shoulder', () => {
+  const p = sampleProject();
+  const ramp = headRamp(p);
+  assert.ok(ramp.n >= 1 && ramp.end > ramp.start);
+  const m = keyMesh(p);
+  assertSolid(m);
+  const P = m.positions;
+  const levels = new Set();
+  for (let i = 0; i < P.length; i += 3) {
+    const x = P[i];
+    const z = P[i + 2];
+    // between the shoulder and the start of the ramp nothing is thicker than the blade
+    if (x > -RAMP_START + 1e-6) assert.ok(z <= p.profile.thickness + 1e-6, `z ${z} at x ${x}`);
+    levels.add(z.toFixed(3));
+  }
+  // intermediate steps exist between blade and head thickness
+  const mids = [...levels].map(Number).filter((z) => z > p.profile.thickness + 1e-6 && z < p.profile.headThickness - 1e-6);
+  assert.ok(mids.length >= 3, 'ramp steps: ' + mids);
+});
+
+test('strength estimate finds the weak spot and reacts to cuts, grooves and material', () => {
+  const plain = normalizeProject(defaultProject());
+  const a = strengthReport(plain, 'petg');
+  assert.ok(a.x < 0.1, 'uncut blade is weakest at the shoulder');
+  const cut = sampleProject();
+  const b = strengthReport(cut, 'petg');
+  assert.ok(b.effectiveNm < a.effectiveNm);
+  assert.ok(b.x > 3 && b.x < 20);
+  const grooved = sampleProject((q) => {
+    q.profile.grooves = [{ side: 'front', from: 1, width: 1.2, depth: 0.6 }];
+    return q;
+  });
+  assert.ok(strengthReport(grooved, 'petg').effectiveNm < b.effectiveNm);
+  assert.ok(strengthReport(cut, 'cf').effectiveNm > b.effectiveNm);
+  for (const k of Object.keys(MATERIALS)) assert.ok(['good', 'ok', 'weak'].includes(strengthReport(cut, k).rating));
 });

@@ -108,6 +108,8 @@ export class Viewer {
     this.posBuf = gl.createBuffer();
     this.norBuf = gl.createBuffer();
     this.gridBuf = gl.createBuffer();
+    this.markBuf = gl.createBuffer();
+    this.markCount = 0;
     this.count = 0;
     this.gridCount = 0;
     this.color = [0.85, 0.68, 0.3];
@@ -225,6 +227,18 @@ export class Viewer {
     this.requestDraw();
   }
 
+  /** Highlights a closed polyline (flat xyz array) on top of the model, or clears it. */
+  setMarker(points) {
+    if (this.failed) return;
+    const gl = this.gl;
+    this.markCount = points ? points.length / 3 : 0;
+    if (points) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.markBuf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(points), gl.STATIC_DRAW);
+    }
+    this.requestDraw();
+  }
+
   setTheme(dark) {
     this.background = dark ? [0.11, 0.12, 0.14] : [0.94, 0.95, 0.97];
     this.gridColor = dark ? [1, 1, 1, 0.16] : [0, 0, 0, 0.14];
@@ -296,5 +310,19 @@ export class Viewer {
     gl.drawArrays(gl.TRIANGLES, 0, this.count);
     gl.disableVertexAttribArray(ap);
     gl.disableVertexAttribArray(an);
+
+    // weak-spot marker, always visible
+    if (this.markCount) {
+      gl.disable(gl.DEPTH_TEST);
+      gl.useProgram(this.lprog);
+      gl.uniformMatrix4fv(gl.getUniformLocation(this.lprog, 'uMVP'), false, mvp);
+      gl.uniform4fv(gl.getUniformLocation(this.lprog, 'uColor'), [0.95, 0.12, 0.1, 1]);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.markBuf);
+      gl.enableVertexAttribArray(lp);
+      gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 0, 0);
+      gl.drawArrays(gl.LINE_LOOP, 0, this.markCount);
+      gl.disableVertexAttribArray(lp);
+      gl.enable(gl.DEPTH_TEST);
+    }
   }
 }
