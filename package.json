@@ -1,0 +1,13 @@
+{
+  "name": "kulcsmasolo-3d",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kulcs bemérése a telefon képernyőjén és 3D nyomtatható STL modell készítése.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "e2e": "node tests/e2e.mjs",
+    "serve": "python3 -m http.server 8080"
+  },
+  "license": "MIT"
+}
