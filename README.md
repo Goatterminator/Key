@@ -4,7 +4,14 @@ Telefonos webapp, amellyel egy kulcsot a **telefon képernyőjére fektetve, 1:1
 
 Nem kell hozzá telepítés, szerver vagy fiók: egyetlen statikus weboldal, ami a böngészőben fut, és kezdőképernyőre téve offline is működik (PWA).
 
-## Hogyan működik?
+## Két bemérési mód
+
+- **Fotóról (AI segítséggel):** a kulcsot egy bankkártya mellett felülről lefotózod. Az AI megkeresi a kártya sarkait – ebből számolja az app a pontos méretarányt és egyenesíti ki a perspektívát –, majd a kiegyenesített képen bejelöli a kulcs részeit (váll, hátsó él, hegy, bevágások, fej, lyuk). A jelöléseket a felnagyított fotón ellenőrzöd és igazítod. AI nélkül kézzel is működik.
+  - A **claude.ai artifactként** a beépített Claude elemzi a fotót, kulcs nélkül (a néző saját Claude-keretéből).
+  - **Saját weboldalon** egy **Gemini API kulcsot** lehet megadni (alapértelmezett modell: `gemini-flash-latest`, átállítható). A kulcs csak a böngészőben tárolódik, és csak a Gemini API-nak megy el.
+- **A képernyőn:** a kulcsot a kalibrált telefonképernyőre teszed, és 1:1 méretben jelölöd be (lent részletesen).
+
+## Hogyan működik? (képernyős mód)
 
 1. **Kalibrálás** – egy bankkártyát (vagy személyi igazolványt, jogosítványt; mind 85,60 × 53,98 mm) teszel a képernyőre, és a keretet a széleihez igazítod. Ebből tudja az app, hány képpont 1 mm a te telefonodon. (Kártya helyett vonalzóval is lehet a keret tetején lévő mm-skála alapján.)
 2. **Penge** – ráteszed a kulcsot a sablonra (hegye felfelé, bevágások jobbra), és a vonalakat a kulcs széleihez igazítod: váll, egyenes hátsó él, penge magassága, hegy és letörések. A sablon el is forgatható, ha a kulcs nem pont egyenesen fekszik.
@@ -33,7 +40,7 @@ python3 -m http.server 8080
 
 ### Claude artifactként
 
-Az app Claude artifactként is fut (a claude.ai-on vagy a Claude alkalmazásban). Az `artifact/index.html` ugyanaz az oldal a platform keret nélküli formátumában; a `node scripts/build-artifact.mjs` készíti el az `index.html`-ből. Közzétételkor mellé kell tenni a `css/app.css`, `js/*.js` és `vendor/earcut.js` fájlokat, és a `downloads` képességet kell megadni.
+Az app Claude artifactként is fut (a claude.ai-on vagy a Claude alkalmazásban). Az `artifact/index.html` ugyanaz az oldal a platform keret nélküli formátumában; a `node scripts/build-artifact.mjs` készíti el az `index.html`-ből. Közzétételkor mellé kell tenni a `css/app.css`, `js/*.js` és `vendor/earcut.js` fájlokat, a képességek: `downloads: true` és `sample: {images: true}` (ez utóbbi a fotó elemzéséhez).
 
 Artifactban a fájlmentés a Claude saját mentési párbeszédén keresztül megy, ami `.stl` fájlt nem enged, ezért az STL egy **ZIP fájlban** érkezik (ugyanaz a modell, ki kell bontani). A projekt JSON mentése és betöltése ugyanúgy működik.
 
@@ -85,5 +92,8 @@ npm run e2e     # végigkattintja az appot egy emulált telefonon (Playwright + 
 | `js/viewer.js` | Saját, függőség nélküli WebGL előnézet |
 | `js/stl.js` | Bináris STL író |
 | `js/zip.js` | Egyszerű ZIP író (artifactban így tölthető le az STL) |
+| `js/photo.js` | Fotó betöltése, kártya alapú homográfia, kiegyenesített kulcs-kivágás, tárolás (IndexedDB) |
+| `js/ai.js` | AI felismerés: Claude (artifactban) vagy Gemini (API kulccsal) |
+| `js/landmarks.js` | A felismert pontokból a kulcs méretei és jelölései |
 | `js/main.js` | Lépések, panelek, mentés, visszavonás |
 | `vendor/earcut.js` | Sokszög-háromszögelés ([earcut](https://github.com/mapbox/earcut), ISC licenc) |

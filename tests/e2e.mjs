@@ -47,6 +47,9 @@ await page.goto(base);
 await page.waitForSelector('#sheet:not([hidden])');
 await shot('00-intro');
 await page.click('#sheetClose');
+await page.waitForSelector('#modeSheet:not([hidden])');
+await shot('00b-mode');
+await page.click('[data-mode="screen"]');
 
 // calibration
 await page.waitForFunction(() => document.body.dataset.step === 'calib');
@@ -174,6 +177,7 @@ console.log(process.exitCode ? 'E2E FAILED' : 'E2E OK');
   p2.on('pageerror', (e) => errs2.push(e.message));
   await p2.goto(base);
   await p2.click('#sheetClose');
+  await p2.click('[data-mode="screen"]');
   await p2.click('#calDone');
   await p2.evaluate(() => {
     app.project.cuts.points = [{ x: 5, y: 6 }, { x: 9, y: 5 }];
@@ -206,5 +210,153 @@ console.log(process.exitCode ? 'E2E FAILED' : 'E2E OK');
   if (errs2.length) fail('artifact page errors:\n' + errs2.join('\n'));
   await browser2.close();
   console.log(process.exitCode ? 'E2E (artifact) FAILED' : 'E2E (artifact) OK');
+}
+
+// ---- photo mode: synthetic photo of a known key + card, AI answers simulated ------------
+{
+  const browser3 = await chromium.launch();
+  const ctx3 = await browser3.newContext({ ...devices['iPhone 13'] });
+  await ctx3.addInitScript(() => {
+    const json = async (prompt) => {
+      const T = window.__truth;
+      const n = ([x, y], w, h) => [(y / h) * 1000, (x / w) * 1000];
+      if (prompt.includes('ID-1 sized card')) {
+        return { card: T.card.map((q) => n(q, T.W, T.H)), tip: n(T.tip, T.W, T.H), head_end: n(T.end, T.W, T.H) };
+      }
+      const { cardTransforms, applyH } = await import('/js/photo.js');
+      const { toMm } = cardTransforms(window.app.project.photo.points);
+      const crop = window.app.crop;
+      const c = (q) => n(crop.geometry.inv(...applyH(toMm, q[0], q[1])), crop.W, crop.H);
+      const L = T.lm;
+      const hc = crop.geometry.inv(...applyH(toMm, ...L.holeCenter));
+      return {
+        cuts_side: 'right',
+        back_edge: L.back.map(c),
+        shoulder: c(L.shoulder),
+        blade_width_point: c(L.width),
+        tip: c(L.tip),
+        tip_slope_notched: c(L.slopeNotched),
+        tip_slope_straight: c(L.slopeStraight),
+        cuts: L.cuts.map(c),
+        head_end: c(L.headEnd),
+        head_left: c(L.headLeft),
+        head_right: c(L.headRight),
+        hole: [((hc[1] - L.holeR) / crop.H) * 1000, ((hc[0] - L.holeR) / crop.W) * 1000, ((hc[1] + L.holeR) / crop.H) * 1000, ((hc[0] + L.holeR) / crop.W) * 1000],
+      };
+    };
+    const sample = async () => ({ text: '' });
+    sample.json = json;
+    sample.limits = async () => ({ maxPromptBytes: 262144, images: { maxCount: 5, maxInputBytes: 2e7, mediaTypes: ['image/jpeg', 'image/png'] } });
+    window.claude = { use: async (name) => (name === 'sample' ? sample : null) };
+  });
+  const p3 = await ctx3.newPage();
+  const shot3 = async (name) => shots && p3.screenshot({ path: path.join(shots, name + '.png') });
+  const errs3 = [];
+  p3.on('pageerror', (e) => errs3.push(e.message));
+  await p3.goto(base);
+  await p3.click('#sheetClose');
+  await p3.click('[data-mode="photo"]');
+  await p3.waitForFunction(() => document.body.dataset.step === 'photo');
+  await shot3('10-photo-empty');
+
+  // draw the synthetic photo with the app's own geometry code and remember the truth
+  const png = await p3.evaluate(async () => {
+    const { defaultProject, normalizeProject, keyOutline } = await import('/js/geometry.js');
+    const { toScreen } = await import('/js/frame.js');
+    const t = defaultProject();
+    t.blade = { length: 28.4, height: 8.6, tipY: 3.9, tipTop: 2.7, tipBack: 1.8 };
+    t.cuts.points = [4.1, 8.1, 12.1, 16.1, 20.1].map((x, i) => ({ x, y: [6.3, 5.2, 7.1, 4.9, 6.0][i] }));
+    t.head = { ...t.head, length: 21, top: 15.9, bottom: -7.3, hole: true, holeX: -15.5, holeY: 4.3, holeD: 4.2 };
+    normalizeProject(t);
+    const W = 2400, H = 1800, s = 12;
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f2f2ee';
+    g.fillRect(0, 0, W, H);
+    // card
+    const th = 0.12, C0 = [300, 500];
+    g.setTransform(s * Math.cos(th), s * Math.sin(th), -s * Math.sin(th), s * Math.cos(th), C0[0], C0[1]);
+    g.fillStyle = '#2b6cb0';
+    g.beginPath();
+    g.roundRect(0, 0, 85.6, 53.98, 3.18);
+    g.fill();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const card = [[0, 0], [85.6, 0], [85.6, 53.98], [0, 53.98]].map(([u, v]) => [C0[0] + s * (u * Math.cos(th) - v * Math.sin(th)), C0[1] + s * (u * Math.sin(th) + v * Math.cos(th))]);
+    // key
+    const f = { ox: 140, oy: 95, angle: -0.08 };
+    const P = (x, y) => toScreen(f, x, y).map((v) => v * s);
+    const o = keyOutline(t);
+    g.fillStyle = '#5a5a5a';
+    g.beginPath();
+    o.outer.forEach(([x, y], i) => (i ? g.lineTo(...P(x, y)) : g.moveTo(...P(x, y))));
+    g.closePath();
+    g.fill();
+    g.fillStyle = '#f2f2ee';
+    g.beginPath();
+    g.arc(...P(t.head.holeX, t.head.holeY), (t.head.holeD / 2) * s, 0, Math.PI * 2);
+    g.fill();
+    const b = t.blade, h = t.head;
+    window.__truth = {
+      W, H, card,
+      tip: P(b.length, b.tipY),
+      end: P(-h.length, (h.top + h.bottom) / 2),
+      lm: {
+        back: [P(b.length - 4, 0), P(2, 0)],
+        shoulder: P(0, b.height),
+        width: P(1, b.height),
+        tip: P(b.length, b.tipY),
+        slopeNotched: P(b.length - b.tipTop, b.height),
+        slopeStraight: P(b.length - b.tipBack, 0),
+        cuts: t.cuts.points.map((q) => P(q.x, q.y)),
+        headEnd: P(-h.length, (h.top + h.bottom) / 2),
+        headLeft: P(-h.length / 2, h.bottom),
+        headRight: P(-h.length / 2, h.top),
+        holeCenter: P(h.holeX, h.holeY),
+        holeR: h.holeD / 2,
+      },
+      project: t,
+    };
+    return c.toDataURL('image/png').split(',')[1];
+  });
+  await p3.setInputFiles('#photoPick', { name: 'kulcs.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  await p3.waitForFunction(() => window.app.project.photo && Math.abs(window.app.project.photo.points.card[0][0] - 300) < 400 && document.getElementById('busy').hidden);
+  await p3.waitForTimeout(300);
+  await shot3('11-photo-setup');
+  await p3.click('#btnNext');
+  await p3.waitForFunction(() => document.body.dataset.step === 'blade');
+  await p3.waitForTimeout(300);
+  await shot3('12-photo-blade');
+  const got = await p3.evaluate(() => ({ p: window.app.project, t: window.__truth.project }));
+  const near = (a, b, what, tol = 0.02) => Math.abs(a - b) <= tol || fail(`photo ${what}: ${a} vs ${b}`);
+  near(got.p.blade.length, got.t.blade.length, 'blade length');
+  near(got.p.blade.height, got.t.blade.height, 'blade height');
+  near(got.p.blade.tipY, got.t.blade.tipY, 'tip');
+  near(got.p.blade.tipTop, got.t.blade.tipTop, 'top chamfer');
+  near(got.p.head.length, got.t.head.length, 'head length');
+  near(got.p.head.holeX, got.t.head.holeX, 'hole x');
+  near(got.p.head.holeD, got.t.head.holeD, 'hole d', 0.1);
+  if (got.p.cuts.points.length !== 5) fail('photo cuts: ' + got.p.cuts.points.length);
+  got.p.cuts.points.forEach((q, i) => {
+    near(q.x, got.t.cuts.points[i].x, 'cut x');
+    near(q.y, got.t.cuts.points[i].y, 'cut y');
+  });
+  console.log(`photo mode: L=${got.p.blade.length.toFixed(3)} (${got.t.blade.length}), cuts ${got.p.cuts.points.map((q) => q.y.toFixed(2)).join(' ')}`);
+  // pinch-free zoom with the wheel works on the photo view
+  const k0 = await p3.evaluate(() => window.app.cropView.k);
+  await p3.mouse.move(195, 300);
+  await p3.mouse.wheel(0, -300);
+  const k1 = await p3.evaluate(() => window.app.cropView.k);
+  if (!(k1 > k0)) fail('wheel zoom on photo');
+  await p3.click('#btnNext');
+  await p3.click('#btnNext');
+  await p3.click('#btnNext');
+  await p3.click('#btnNext');
+  await p3.waitForSelector('#modelInfo .ok');
+  await shot3('13-photo-model');
+  if (errs3.length) fail('photo page errors:\n' + errs3.join('\n'));
+  await browser3.close();
+  console.log(process.exitCode ? 'E2E (photo) FAILED' : 'E2E (photo) OK');
 }
 server.close();

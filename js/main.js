@@ -10,10 +10,16 @@ import { toScreen, deltaToModel, rotateFrame, toModel } from './frame.js';
 import { fmt, parseNum, clamp, DEG, escapeHtml } from './util.js';
 import { HELP, INTRO } from './help.js';
 import { makeZip } from './zip.js';
+import { loadImageFile, canvasToJpeg, renderCrop, defaultPoints, storePhoto, loadStoredPhoto, CROP_MARGIN } from './photo.js';
+import { aiProvider, detectSetup, detectLandmarks, DEFAULT_GEMINI_MODEL } from './ai.js';
+import { applyLandmarks, cutsOnLeft, placeTemplateOnCrop } from './landmarks.js';
 
-const STEPS = ['blade', 'cuts', 'head', 'profile', 'model'];
+const SCREEN_STEPS = ['blade', 'cuts', 'head', 'profile', 'model'];
+const steps = () => (app.project && app.project.source === 'photo' ? ['photo', ...SCREEN_STEPS] : SCREEN_STEPS);
+const isPhoto = () => !!(app.project && app.project.source === 'photo');
 const MARK_STEPS = ['blade', 'cuts', 'head'];
-const TITLES = { calib: 'Kalibrálás', blade: 'Penge', cuts: 'Bevágások', head: 'Fej', profile: 'Profil', model: '3D modell' };
+const TITLES = { calib: 'Kalibrálás', photo: 'Fotó', blade: 'Penge', cuts: 'Bevágások', head: 'Fej', profile: 'Profil', model: '3D modell' };
+const PHOTO_HINT = 'Húzd a kék pontokat a kártya sarkaira (ahol az egyenes élek találkoznának), a rózsaszíneket a kulcs hegyére és a fej végére. Két ujjal nagyíthatsz.';
 const HINTS = {
   blade: 'Igazítsd a vonalakat a kulcshoz: váll, hátsó él, magasság, hegy.',
   cuts: 'Koppints minden bevágás aljához a kulcs mellett.',
@@ -78,7 +84,7 @@ const FIELDS = {
 
 const app = {
   settings: Object.assign(
-    { pxPerMm: isCoarse ? 6.3 : 96 / 25.4, calibrated: false, stageTheme: 'light', grid: true, nudge: 0.05, step: 'blade', introSeen: false, material: 'petg' },
+    { pxPerMm: isCoarse ? 6.3 : 96 / 25.4, calibrated: false, stageTheme: 'light', grid: true, nudge: 0.05, step: 'blade', introSeen: false, material: 'petg', geminiKey: '', geminiModel: '', aiMarks: true },
     readLS(LS_SETTINGS) || {},
   ),
   project: null,
@@ -89,6 +95,20 @@ const app = {
   undo: [],
   mesh: null,
   calibBackup: null,
+  photoImage: null, // the photo (canvas) in photo mode
+  crop: null, // the rectified key crop used as background of the marking steps
+  photoView: { k: 1, ox: 0, oy: 0, kMin: 0.05, kMax: 8, fixed: false },
+  cropView: { k: 8, ox: 0, oy: 0, kMin: 2, kMax: 90, fixed: false },
+
+  /** Mapping of the current step's units to CSS px. */
+  view() {
+    if (this.step === 'photo') return this.photoView;
+    if (isPhoto() && MARK_STEPS.includes(this.step)) return this.cropView;
+    return { k: this.settings.pxPerMm, ox: 0, oy: 0, fixed: true };
+  },
+  redraw() {
+    render();
+  },
 
   // ---- state helpers -------------------------------------------------------------------
   outline() {
@@ -162,10 +182,11 @@ const app = {
   },
   hitHandle(X, Y) {
     let best = null;
+    const V = this.view();
     // cuts sit ~4 mm apart, so a tap a bit further away from one adds a new cut instead
-    let bestD = this.step === 'cuts' ? 2.2 : 6.5; // mm
+    let bestD = V.fixed ? (this.step === 'cuts' ? 2.2 : 6.5) : (this.step === 'cuts' ? 16 : 28) / V.k;
     for (const h of this.handles()) {
-      const [hx, hy] = toScreen(this.project.frame, h.x, h.y);
+      const [hx, hy] = this.step === 'photo' ? [h.x, h.y] : toScreen(this.project.frame, h.x, h.y);
       const d = Math.hypot(hx - X, hy - Y);
       if (d < bestD) {
         bestD = d;
@@ -183,7 +204,9 @@ const app = {
     const id = this.selected;
     if (!id) return;
     const p = this.project;
-    if (id === 'rotate') {
+    if (this.step === 'photo') {
+      moveHandle(p, id, dX, dY); // photo pixels, no key frame involved
+    } else if (id === 'rotate') {
       const f = p.frame;
       const [hx, hy] = toScreen(f, p.blade.length + ROT_ARM, 0);
       const na = Math.atan2(hx + dX - f.ox, -(hy + dY - f.oy));
@@ -236,6 +259,11 @@ const app = {
     this.act('nudge:' + this.selected, () => this.dragSelected(d[0], d[1]));
   },
   centerTemplate() {
+    if (isPhoto()) {
+      fitViews();
+      render();
+      return;
+    }
     const p = this.project;
     const s = this.settings.pxPerMm;
     const { top, bottom } = this.visibleRect();
@@ -320,8 +348,9 @@ function updatePanel() {
     return;
   }
 
-  const idx = STEPS.indexOf(step);
-  $('stepNo').textContent = `${idx + 1}/${STEPS.length}`;
+  const idx = steps().indexOf(step);
+  $('stepNo').textContent = `${idx + 1}/${steps().length}`;
+  document.body.classList.toggle('photo-mode', isPhoto());
   $('stepTitle').textContent = TITLES[step];
   $('btnPrev').disabled = idx === 0;
   $('btnNext').textContent = step === 'model' ? '⬇ STL' : 'Tovább ›';
@@ -331,7 +360,7 @@ function updatePanel() {
     const o = app.outline();
     let html = app.selected ? describeHandle(p, app.selected, o) : '';
     if (app.moveAll) html = '<b>Mozgat mód</b> – húzd a sablont a kulcs alá, a ⟳ fogantyúval forgass';
-    $('readout').innerHTML = html || HINTS[step];
+    $('readout').innerHTML = html || HINTS[step] + (isPhoto() ? ' Két ujjal nagyíthatsz.' : '');
     $('btnStep').textContent = `${fmt(app.settings.nudge, 2)} mm`;
     $('btnFine').classList.toggle('on', app.fine);
     $('btnMoveAll').classList.toggle('on', app.moveAll);
@@ -339,6 +368,16 @@ function updatePanel() {
 
   document.querySelectorAll(`.step-panel[data-step="${step}"] [data-field]`).forEach(setField);
 
+  if (step === 'photo') {
+    const has = !!(app.photoImage && p.photo);
+    $('photoEmpty').hidden = has;
+    $('photoTools').hidden = !has;
+    $('photoReadout').innerHTML = (app.selected && describeHandle(p, app.selected, app.outline())) || PHOTO_HINT;
+    if (document.activeElement !== $('geminiKey')) $('geminiKey').value = app.settings.geminiKey || '';
+    if (document.activeElement !== $('geminiModel')) $('geminiModel').value = app.settings.geminiModel || '';
+    $('chkAiMarks').checked = app.settings.aiMarks !== false;
+    updateAiState();
+  }
   if (step === 'cuts') {
     $('cutStyle').value = p.cuts.style;
     $('chkDouble').checked = p.cuts.doubleSided;
@@ -433,6 +472,8 @@ function setStep(step) {
   if (step !== 'blade') app.moveAll = false;
   if (app.selected && !app.handles().some((h) => h.id === app.selected)) app.selected = null;
   document.body.dataset.step = step;
+  if (step === 'photo' && app.photoImage && !app.photoView.fitted) fitViews();
+  if (isPhoto() && MARK_STEPS.includes(step) && app.crop && !app.cropView.fitted) fitViews();
   const is3d = step === 'model';
   $('view3d').hidden = !is3d;
   updatePanel();
@@ -600,7 +641,7 @@ function closeSheet() {
   if (!app.settings.introSeen) {
     app.settings.introSeen = true;
     app.saveSettings();
-    if (!app.settings.calibrated) startCalibration();
+    $('modeSheet').hidden = false;
   }
 }
 
@@ -613,10 +654,10 @@ function checkWarnings() {
   const msgs = [];
   const vv = window.visualViewport;
   if (vv && vv.scale > 1.02) msgs.push('A nézet nagyítva van – csippentéssel állítsd vissza, különben a méretek nem pontosak.');
-  if (isCoarse && MARK_STEPS.concat('calib').includes(app.step) && window.innerWidth > window.innerHeight) {
+  if (isCoarse && !isPhoto() && MARK_STEPS.concat('calib').includes(app.step) && window.innerWidth > window.innerHeight) {
     msgs.push('Fordítsd a telefont álló helyzetbe.');
   }
-  if (MARK_STEPS.includes(app.step) && !app.settings.calibrated) msgs.push('A képernyő még nincs kalibrálva – a méretek nem pontosak (Menü → Kalibrálás).');
+  if (MARK_STEPS.includes(app.step) && !isPhoto() && !app.settings.calibrated) msgs.push('A képernyő még nincs kalibrálva – a méretek nem pontosak (Menü → Kalibrálás).');
   $('banner').hidden = !msgs.length;
   $('banner').textContent = msgs.join(' ');
 }
@@ -625,14 +666,48 @@ function checkWarnings() {
 // wiring
 
 function bind() {
+  for (const id of ['photoCamera', 'photoPick', 'photoReplace']) {
+    $(id).addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      usePhotoFile(f);
+    });
+  }
+  $('btnAiSetup').addEventListener('click', runSetupAI);
+  $('btnAiMarks').addEventListener('click', async () => {
+    if (!app.crop) return;
+    await runLandmarksAI();
+    fitViews();
+    render();
+  });
+  $('btnFitPhoto').addEventListener('click', () => {
+    fitViews();
+    render();
+  });
+  $('geminiKey').addEventListener('change', (e) => {
+    app.settings.geminiKey = e.target.value.trim();
+    app.saveSettings();
+    updateAiState();
+  });
+  $('geminiModel').addEventListener('change', (e) => {
+    app.settings.geminiModel = e.target.value.trim();
+    app.saveSettings();
+  });
+  $('geminiModel').placeholder = DEFAULT_GEMINI_MODEL;
+  $('chkAiMarks').addEventListener('change', (e) => {
+    app.settings.aiMarks = e.target.checked;
+    app.saveSettings();
+  });
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
   $('btnPrev').addEventListener('click', () => {
-    const i = STEPS.indexOf(app.step);
-    if (i > 0) setStep(STEPS[i - 1]);
+    const i = steps().indexOf(app.step);
+    if (i > 0) setStep(steps()[i - 1]);
   });
   $('btnNext').addEventListener('click', () => {
-    const i = STEPS.indexOf(app.step);
+    const i = steps().indexOf(app.step);
     if (app.step === 'model') downloadStl();
-    else setStep(STEPS[i + 1]);
+    else if (app.step === 'photo') leavePhotoStep();
+    else setStep(steps()[i + 1]);
   });
   $('btnUndo').addEventListener('click', () => {
     const prev = app.undo.pop();
@@ -961,15 +1036,233 @@ function menuAction(a) {
       askConfirm('Új kulcsot kezdesz? A jelenlegi jelölések elvesznek (előtte mentheted fájlba).', 'Új kulcs').then((ok) => {
         if (!ok) return;
         app.undo.push(app.snapshot());
+        const photoMode = isPhoto();
         app.project = defaultProject();
         app.selected = null;
-        app.centerTemplate();
-        setStep('blade');
+        if (photoMode) {
+          app.project.source = 'photo';
+          app.photoImage = null;
+          app.crop = null;
+          setStep('photo');
+        } else {
+          app.centerTemplate();
+          setStep('blade');
+        }
       });
       break;
     case 'intro':
       showSheet(INTRO);
       break;
+    case 'mode':
+      $('modeSheet').hidden = false;
+      break;
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// photo mode
+
+function fitView(V, w, h, kMaxFactor) {
+  const { top, bottom } = app.visibleRect();
+  const W = window.innerWidth;
+  const k = Math.min((W - 24) / w, (bottom - top - 24) / h);
+  V.k = k;
+  V.ox = (W - w * k) / 2;
+  V.oy = top + (bottom - top - h * k) / 2;
+  V.kMin = k * 0.5;
+  V.kMax = Math.max(k * kMaxFactor, k * 2);
+  V.fitted = true;
+}
+
+function fitViews() {
+  if (app.photoImage) fitView(app.photoView, app.photoImage.width, app.photoImage.height, 16);
+  if (app.crop) {
+    fitView(app.cropView, app.crop.W, app.crop.H, 12);
+    app.cropView.kMax = Math.max(app.cropView.kMax, 90);
+  }
+}
+
+function buildCrop() {
+  const p = app.project;
+  app.crop = renderCrop(app.photoImage, p.photo.points, p.photo.mirrored);
+  app.cropView.fitted = false;
+}
+
+async function updateAiState() {
+  const prov = await aiProvider(app.settings);
+  const art = !!(window.claude && typeof window.claude.use === 'function');
+  $('aiClaude').hidden = prov !== 'claude';
+  $('aiGemini').hidden = art;
+  $('aiNone').hidden = !(art && prov !== 'claude');
+  $('aiState').textContent = prov === 'claude' ? '· Claude' : prov === 'gemini' ? '· Gemini' : '· nincs beállítva';
+  $('btnAiSetup').disabled = !prov;
+  $('btnAiMarks').hidden = !prov || !isPhoto();
+}
+
+/** Shows the busy overlay while fn(signal) runs; returns its result, or null on error/cancel. */
+async function withBusy(text, fn) {
+  const ctl = new AbortController();
+  $('busyText').textContent = text;
+  $('busy').hidden = false;
+  $('busyCancel').onclick = () => ctl.abort();
+  try {
+    return await fn(ctl.signal);
+  } catch (err) {
+    if (!(err && err.name === 'AbortError')) toast((err && err.message) || 'Az AI elemzés nem sikerült.', 5000);
+    return null;
+  } finally {
+    $('busy').hidden = true;
+  }
+}
+
+async function usePhotoFile(file) {
+  if (!file) return;
+  let canvas;
+  try {
+    canvas = await loadImageFile(file);
+  } catch (err) {
+    toast(err.message || 'A képet nem sikerült megnyitni.');
+    return;
+  }
+  app.photoImage = canvas;
+  app.crop = null;
+  app.photoView.fitted = false;
+  app.undo = [];
+  app.project.source = 'photo';
+  app.project.photo = { points: defaultPoints(canvas.width, canvas.height), mirrored: false, id: String(Date.now()), autoMarked: '' };
+  app.selected = null;
+  app.changed();
+  setStep('photo');
+  canvasToJpeg(canvas, 3200, 0.92)
+    .then(storePhoto)
+    .then((ok) => !ok && toast('A fotót ezen az eszközön nem lehet eltárolni: újratöltés után újra kell választani.', 4000));
+  if (await aiProvider(app.settings)) runSetupAI();
+  else toast('Jelöld be a kártya 4 sarkát és a kulcs két végét.', 3500);
+}
+
+async function runSetupAI() {
+  const img = app.photoImage;
+  if (!img) return;
+  const blob = await canvasToJpeg(img, 1600);
+  const res = await withBusy('A kártya és a kulcs keresése a fotón…', (signal) => detectSetup(app.settings, blob, signal));
+  if (!res) return;
+  const W = img.width;
+  const H = img.height;
+  const sc = ([x, y]) => [x * W, y * H];
+  app.act('ai-setup', () => {
+    app.project.photo.points = { card: res.card.map(sc), tip: sc(res.tip), end: sc(res.end) };
+    app.project.photo.autoMarked = '';
+  });
+  toast('Ellenőrizd a kártya sarkait és a kulcs két végét (nagyíts rá), majd Tovább.', 4000);
+}
+
+async function runLandmarksAI() {
+  const p = app.project;
+  const crop = app.crop;
+  const blob = await canvasToJpeg(crop.canvas, 1600);
+  const sent = Math.min(1, 1600 / Math.max(crop.canvas.width, crop.canvas.height));
+  const info = { pxPerMm: (crop.canvas.width / crop.W) * sent, widthMm: crop.W, heightMm: crop.H };
+  const lm = await withBusy('A kulcs részeinek felismerése…', (signal) => detectLandmarks(app.settings, blob, info, signal));
+  if (!lm) return false;
+  const mm = (q) => (q ? [q[0] * crop.W, q[1] * crop.H] : null);
+  const L = {
+    cutsSide: lm.cutsSide,
+    back: lm.back.map(mm),
+    shoulder: mm(lm.shoulder),
+    width: mm(lm.width),
+    tip: mm(lm.tip),
+    slopeNotched: mm(lm.slopeNotched),
+    slopeStraight: mm(lm.slopeStraight),
+    cuts: lm.cuts.map(mm),
+    headEnd: mm(lm.headEnd),
+    headLeft: mm(lm.headLeft),
+    headRight: mm(lm.headRight),
+    hole: lm.hole ? { x0: lm.hole.x0 * crop.W, y0: lm.hole.y0 * crop.H, x1: lm.hole.x1 * crop.W, y1: lm.hole.y1 * crop.H } : null,
+  };
+  if (cutsOnLeft(L)) {
+    // the cuts face left: mirror the crop so they face right like everywhere else
+    p.photo.mirrored = !p.photo.mirrored;
+    buildCrop();
+    const W = app.crop.W;
+    const f = (q) => (q ? [W - q[0], q[1]] : null);
+    for (const k of ['back', 'cuts']) L[k] = L[k].map(f);
+    for (const k of ['shoulder', 'width', 'tip', 'slopeNotched', 'slopeStraight', 'headEnd']) L[k] = f(L[k]);
+    [L.headLeft, L.headRight] = [f(L.headRight), f(L.headLeft)];
+    if (L.hole) L.hole = { x0: W - L.hole.x1, x1: W - L.hole.x0, y0: L.hole.y0, y1: L.hole.y1 };
+  }
+  const before = app.snapshot();
+  try {
+    const r = applyLandmarks(p, L);
+    app.commit(before);
+    app.changed();
+    toast(`Az AI ${r.cuts} bevágást talált. Nagyíts rá, és ellenőrizz minden jelölést!`, 4500);
+    return true;
+  } catch (err) {
+    app.restore(before);
+    toast(err.message, 5000);
+    return false;
+  }
+}
+
+async function leavePhotoStep() {
+  const p = app.project;
+  if (!app.photoImage || !p.photo) return toast('Előbb készíts vagy válassz egy fotót.');
+  try {
+    buildCrop();
+  } catch (err) {
+    return toast(err.message, 4000);
+  }
+  const key = p.photo.id + JSON.stringify(p.photo.points);
+  if (p.photo.autoMarked !== key) {
+    let done = false;
+    if (app.settings.aiMarks !== false && (await aiProvider(app.settings))) done = await runLandmarksAI();
+    if (!done) placeTemplateOnCrop(p, app.crop, CROP_MARGIN);
+    p.photo.autoMarked = p.photo.id + JSON.stringify(p.photo.points);
+    app.changed();
+  }
+  fitViews();
+  setStep('blade');
+}
+
+async function restorePhoto() {
+  const p = app.project;
+  const blob = await loadStoredPhoto();
+  if (!blob || !p.photo) {
+    app.photoImage = null;
+    if (app.step !== 'photo') setStep('photo');
+    render();
+    return;
+  }
+  try {
+    app.photoImage = await loadImageFile(blob);
+    buildCrop();
+  } catch {
+    app.crop = null;
+    if (app.step !== 'photo') setStep('photo');
+  }
+  fitViews();
+  render();
+}
+
+function setMode(mode) {
+  $('modeSheet').hidden = true;
+  const p = app.project;
+  if (mode === 'photo') {
+    if (p.source !== 'photo') {
+      p.source = 'photo';
+      if (p.photo) p.photo.autoMarked = '';
+      app.changed();
+    }
+    setStep('photo');
+    if (!app.photoImage) restorePhoto();
+  } else {
+    if (p.source !== 'screen') {
+      p.source = 'screen';
+      app.changed();
+      app.centerTemplate();
+    }
+    if (!app.settings.calibrated) startCalibration();
+    else setStep('blade');
   }
 }
 
@@ -982,11 +1275,14 @@ function start() {
   const stored = loadProject();
   app.project = stored || defaultProject();
   bind();
-  if (!app.settings.calibrated) {
+  if (isPhoto()) {
+    setStep(steps().includes(app.settings.step) ? app.settings.step : 'photo');
+    restorePhoto();
+  } else if (!app.settings.calibrated && app.settings.introSeen) {
     app.calibBackup = app.settings.pxPerMm;
     setStep('calib');
   } else {
-    setStep(STEPS.includes(app.settings.step) ? app.settings.step : 'blade');
+    setStep(SCREEN_STEPS.includes(app.settings.step) ? app.settings.step : 'blade');
   }
   if (!stored) {
     // place the template once the panel has its final size

@@ -27,6 +27,15 @@ export function handlesFor(step, p, outline) {
   if (step === 'cuts') {
     return p.cuts.points.map((q, i) => ({ id: 'cut:' + i, x: q.x, y: q.y, axis: 'xy' }));
   }
+  if (step === 'photo') {
+    const pts = p.photo && p.photo.points;
+    if (!pts) return [];
+    return [
+      ...pts.card.map((q, i) => ({ id: 'card' + i, x: q[0], y: q[1], axis: 'xy' })),
+      { id: 'ptip', x: pts.tip[0], y: pts.tip[1], axis: 'xy' },
+      { id: 'pend', x: pts.end[0], y: pts.end[1], axis: 'xy' },
+    ];
+  }
   if (step === 'head') {
     const list = [
       { id: 'headEnd', x: -hs.Lh, y: (hs.ht + hs.hb) / 2, axis: 'x' },
@@ -78,8 +87,19 @@ export function moveHandle(p, id, dx, dy) {
       p.head.holeX += dx;
       p.head.holeY += dy;
       break;
+    case 'ptip':
+    case 'pend': {
+      const q = p.photo.points[id === 'ptip' ? 'tip' : 'end'];
+      q[0] += dx;
+      q[1] += dy;
+      break;
+    }
     default:
-      if (id.startsWith('cut:')) {
+      if (id.startsWith('card')) {
+        const q = p.photo.points.card[+id.slice(4)];
+        q[0] += dx;
+        q[1] += dy;
+      } else if (id.startsWith('cut:')) {
         const q = p.cuts.points[+id.slice(4)];
         if (q) {
           q.x += dx;
@@ -122,7 +142,12 @@ export function describeHandle(p, id, outline) {
       return `<b>Fej széle</b> – fej szélessége ${fmt(hs.ht - hs.hb)} mm`;
     case 'hole':
       return `<b>Kulcskarika lyuk</b> – Ø ${fmt(p.head.holeD, 1)} mm`;
+    case 'ptip':
+      return '<b>Kulcs hegye</b> – a penge vége';
+    case 'pend':
+      return '<b>Fej vége</b> – a kulcs hegytől legtávolabbi pontja';
     default:
+      if (id && id.startsWith('card')) return `<b>Kártya ${+id.slice(4) + 1}. sarka</b> – ahol az egyenes élek találkoznának`;
       if (id && id.startsWith('cut:')) {
         const i = +id.slice(4);
         const q = p.cuts.points[i];

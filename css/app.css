@@ -204,6 +204,7 @@ body {
 }
 
 body[data-step="calib"] .step-panel[data-step="calib"],
+body[data-step="photo"] .step-panel[data-step="photo"],
 body[data-step="blade"] .step-panel[data-step="blade"],
 body[data-step="cuts"] .step-panel[data-step="cuts"],
 body[data-step="head"] .step-panel[data-step="head"],
@@ -732,4 +733,95 @@ select.btn.small {
 p.note {
   margin: 6px 0 2px;
   line-height: 1.35;
+}
+
+.file-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-howto {
+  margin: 2px 0 6px;
+  font-size: 14px;
+}
+
+.readout.wrap-text {
+  white-space: normal;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: var(--btn-bg);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.mode-btn b {
+  font-size: 17px;
+}
+
+.mode-btn span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.mode-btn:active {
+  filter: brightness(0.94);
+}
+
+.sheet.center {
+  align-items: center;
+}
+
+.busy-card {
+  max-width: 340px;
+  text-align: center;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  margin: 4px auto 8px;
+  border-radius: 50%;
+  border: 4px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 3s;
+  }
+}
+
+.sheet-card a {
+  color: var(--accent);
+}
+
+.note a {
+  color: var(--accent);
+  -webkit-user-select: text;
+  user-select: text;
 }

@@ -4,6 +4,7 @@
 import { axes, toScreen } from './frame.js';
 import { zRangeAt } from './geometry.js';
 import { cutNumber, ROT_ARM } from './handles.js';
+import { cardTransforms, applyH, CARD_LONG, CARD_SHORT, CARD_RADIUS } from './photo.js';
 import { fmt } from './util.js';
 
 export const CARD_W = 53.98;
@@ -44,6 +45,8 @@ export class Stage {
     this.ctx = canvas.getContext('2d');
     this.app = app;
     this.pid = null;
+    this.pointers = new Map();
+    canvas.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     canvas.addEventListener('pointerdown', (e) => this.down(e));
     canvas.addEventListener('pointermove', (e) => this.move(e));
     canvas.addEventListener('pointerup', (e) => this.up(e, false));
@@ -59,26 +62,59 @@ export class Stage {
     return THEMES[this.app.settings.stageTheme] || THEMES.light;
   }
 
-  /** Pointer position in screen millimetres. */
+  /** Current view: px = unit * k + offset (units are screen mm, photo px or crop mm). */
+  get view() {
+    return this.app.view();
+  }
+
+  /** Pointer position in the current view's units. */
   mm(e) {
-    return [e.clientX / this.s, e.clientY / this.s];
+    const V = this.view;
+    return [(e.clientX - V.ox) / V.k, (e.clientY - V.oy) / V.k];
+  }
+
+  /** Zooms a zoomable view by f around the screen point (px, py). */
+  zoomAt(f, px, py) {
+    const V = this.view;
+    const k = Math.min(V.kMax, Math.max(V.kMin, V.k * f));
+    V.ox = px - ((px - V.ox) * k) / V.k;
+    V.oy = py - ((py - V.oy) * k) / V.k;
+    V.k = k;
+    this.app.redraw();
+  }
+
+  wheel(e) {
+    if (this.view.fixed) return;
+    e.preventDefault();
+    this.zoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
   }
 
   // ---- interaction ------------------------------------------------------------------------
 
   down(e) {
-    if (this.pid !== null) return; // a second finger or the key itself: ignore
     const app = this.app;
-    this.pid = e.pointerId;
+    this.pointers.set(e.pointerId, [e.clientX, e.clientY]);
     try {
       this.c.setPointerCapture(e.pointerId);
     } catch {
       /* ignore */
     }
+    const V = this.view;
+    if (this.pointers.size === 2 && !V.fixed) {
+      // two fingers on a photo: zoom and pan; undo whatever the first finger moved
+      if (this.pid !== null && this.snap && this.mode !== 'pan') app.restore(this.snap);
+      const [a, b] = [...this.pointers.values()];
+      this.mode = 'pinch';
+      this.pinch = { d: Math.hypot(a[0] - b[0], a[1] - b[1]), mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
+      return;
+    }
+    if (this.pid !== null) return; // a second finger or the key itself: ignore
+    this.pid = e.pointerId;
     const m = this.mm(e);
     this.start = m;
     this.last = m;
     this.startPx = [e.clientX, e.clientY];
+    this.lastPx = [e.clientX, e.clientY];
     this.travel = 0;
     this.snap = app.snapshot();
     if (app.step === 'calib') {
@@ -86,7 +122,7 @@ export class Stage {
       this.s0 = app.settings.pxPerMm;
       return;
     }
-    if (!MARK_STEPS.includes(app.step)) {
+    if (!MARK_STEPS.includes(app.step) && app.step !== 'photo') {
       this.mode = 'none';
       return;
     }
@@ -101,14 +137,32 @@ export class Stage {
     } else if (hit) {
       app.select(hit.id);
       this.mode = 'handle';
+    } else if (!V.fixed) {
+      this.mode = 'pan';
     } else {
       this.mode = app.selected ? 'track' : 'none';
     }
   }
 
   move(e) {
-    if (e.pointerId !== this.pid) return;
+    if (!this.pointers.has(e.pointerId)) return;
+    this.pointers.set(e.pointerId, [e.clientX, e.clientY]);
     const app = this.app;
+    if (this.mode === 'pinch') {
+      if (this.pointers.size < 2) return;
+      const [a, b] = [...this.pointers.values()];
+      const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      const mx = (a[0] + b[0]) / 2;
+      const my = (a[1] + b[1]) / 2;
+      const V = this.view;
+      V.ox += mx - this.pinch.mx;
+      V.oy += my - this.pinch.my;
+      if (this.pinch.d > 0 && d > 0) this.zoomAt(d / this.pinch.d, mx, my);
+      else app.redraw();
+      this.pinch = { d, mx, my };
+      return;
+    }
+    if (e.pointerId !== this.pid) return;
     if (this.mode === 'calib') {
       const k = app.fine ? 0.25 : 1;
       this.travel = Math.max(this.travel, Math.hypot(e.clientX - this.startPx[0], e.clientY - this.startPx[1]) / this.s0);
@@ -118,17 +172,34 @@ export class Stage {
       app.setScale(this.s0 + ((dx * CARD_W + dy * CARD_H) * k) / (CARD_W * CARD_W + CARD_H * CARD_H));
       return;
     }
+    if (this.mode === 'pan') {
+      const V = this.view;
+      V.ox += e.clientX - this.lastPx[0];
+      V.oy += e.clientY - this.lastPx[1];
+      this.lastPx = [e.clientX, e.clientY];
+      this.travel = Math.max(this.travel, Math.hypot(e.clientX - this.startPx[0], e.clientY - this.startPx[1]) / 6);
+      app.redraw();
+      return;
+    }
     const m = this.mm(e);
     const dX = m[0] - this.last[0];
     const dY = m[1] - this.last[1];
     this.last = m;
-    this.travel = Math.max(this.travel, Math.hypot(m[0] - this.start[0], m[1] - this.start[1]));
+    this.travel = Math.max(this.travel, Math.hypot(e.clientX - this.startPx[0], e.clientY - this.startPx[1]) / 6);
     const k = app.fine ? 0.25 : 1;
     if (this.mode === 'all') app.translateAll(dX * k, dY * k);
     else if (this.mode === 'handle' || this.mode === 'track') app.dragSelected(dX * k, dY * k);
   }
 
   up(e, cancelled) {
+    this.pointers.delete(e.pointerId);
+    if (this.mode === 'pinch') {
+      if (this.pointers.size === 0) {
+        this.mode = null;
+        this.pid = null;
+      }
+      return;
+    }
     if (e.pointerId !== this.pid) return;
     this.pid = null;
     const app = this.app;
@@ -137,6 +208,10 @@ export class Stage {
       return;
     }
     const tap = !cancelled && this.travel < 1.0;
+    if (this.mode === 'pan') {
+      if (tap) app.tap('none', this.start);
+      return;
+    }
     if (tap) {
       app.restore(this.snap);
       app.tap(this.mode, this.start);
@@ -163,11 +238,13 @@ export class Stage {
     const ctx = this.ctx;
     const th = this.theme;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = this.app.step === 'calib' || MARK_STEPS.includes(this.app.step) ? th.bg : getComputedStyle(document.body).backgroundColor;
+    const step = this.app.step;
+    ctx.fillStyle = step === 'calib' || MARK_STEPS.includes(step) || step === 'photo' ? th.bg : getComputedStyle(document.body).backgroundColor;
     ctx.fillRect(0, 0, this.c.width, this.c.height);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); // CSS pixels from here on
-    if (this.app.step === 'calib') this.drawCalib(ctx, th);
-    else if (MARK_STEPS.includes(this.app.step)) this.drawMarking(ctx, th);
+    if (step === 'calib') this.drawCalib(ctx, th);
+    else if (step === 'photo') this.drawPhotoSetup(ctx, th);
+    else if (MARK_STEPS.includes(step)) this.drawMarking(ctx, th);
     else if (this.app.step === 'profile') this.drawProfile(ctx);
   }
 
@@ -273,12 +350,19 @@ export class Stage {
     const L = p.blade.length;
     const H = p.blade.height;
     const hs = o.head;
+    const V = this.view;
+    const photo = app.project.source === 'photo' ? app.crop : null;
 
     ctx.save();
-    ctx.scale(s, s);
+    ctx.translate(V.ox, V.oy);
+    ctx.scale(V.k, V.k);
+    if (photo) {
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(photo.canvas, 0, 0, photo.W, photo.H);
+    }
     ctx.transform(a.ux, a.uy, a.vx, a.vy, f.ox, f.oy); // model mm from here on
 
-    if (app.settings.grid) this.drawGrid(ctx, th, f);
+    if (app.settings.grid && !photo) this.drawGrid(ctx, th, f);
 
     const outlinePath = () => {
       ctx.beginPath();
@@ -290,6 +374,14 @@ export class Stage {
       }
     };
 
+    if (photo) {
+      // on a photo: a thin centred line, so the key's edge stays visible
+      outlinePath();
+      ctx.strokeStyle = th.outline;
+      ctx.lineWidth = 1.6 / V.k;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+    } else {
     // fill: visible only where the outline is bigger than the key
     outlinePath();
     ctx.fillStyle = th.fill;
@@ -313,6 +405,7 @@ export class Stage {
     ctx.lineJoin = 'round';
     ctx.stroke();
     ctx.restore();
+    }
 
     // guide lines
     const line = (x1, y1, x2, y2, active) => {
@@ -320,7 +413,7 @@ export class Stage {
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.strokeStyle = active ? th.selected : th.guide;
-      ctx.lineWidth = (active ? 2 : 1.2) / s;
+      ctx.lineWidth = (active ? 2 : 1.2) / V.k;
       ctx.stroke();
     };
     ctx.setLineDash([1.5, 1]);
@@ -349,7 +442,7 @@ export class Stage {
     // ---- screen-space overlays (handles, labels) ----
     const toPx = (x, y) => {
       const [X, Y] = toScreen(f, x, y);
-      return [X * s, Y * s];
+      return [X * V.k + V.ox, Y * V.k + V.oy];
     };
     ctx.font = '600 12px system-ui, sans-serif';
     ctx.textAlign = 'center';
@@ -363,7 +456,7 @@ export class Stage {
       });
     }
 
-    const r = Math.max(7, 1.2 * s);
+    const r = V.fixed ? Math.max(7, 1.2 * s) : 9;
     for (const h of app.handles()) {
       const [px, py] = toPx(h.x, h.y);
       const active = h.id === sel;
@@ -423,13 +516,106 @@ export class Stage {
     ctx.textAlign = 'start';
   }
 
+  /** Photo step: the original photo with the card corners and the two ends of the key. */
+  drawPhotoSetup(ctx, th) {
+    const app = this.app;
+    const img = app.photoImage;
+    const V = this.view;
+    if (!img) return;
+    const pts = app.project.photo.points;
+    ctx.save();
+    ctx.translate(V.ox, V.oy);
+    ctx.scale(V.k, V.k);
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0);
+
+    // the card as it should look with these corners (rounded corners included)
+    try {
+      const { toImg } = cardTransforms(pts);
+      const W = CARD_LONG;
+      const H = CARD_SHORT;
+      const R = CARD_RADIUS;
+      const path = [];
+      const arc = (cx, cy, a0) => {
+        for (let i = 0; i <= 6; i++) {
+          const t = a0 + (Math.PI / 2) * (i / 6);
+          path.push([cx + R * Math.cos(t), cy + R * Math.sin(t)]);
+        }
+      };
+      arc(W - R, R, -Math.PI / 2);
+      arc(W - R, H - R, 0);
+      arc(R, H - R, Math.PI / 2);
+      arc(R, R, Math.PI);
+      ctx.beginPath();
+      path.forEach(([x, y], i) => {
+        const [u, v] = applyH(toImg, x, y);
+        if (i) ctx.lineTo(u, v);
+        else ctx.moveTo(u, v);
+      });
+      ctx.closePath();
+      ctx.strokeStyle = '#18a0ff';
+      ctx.lineWidth = 2 / V.k;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(24, 160, 255, 0.12)';
+      ctx.fill();
+    } catch {
+      /* corners not usable yet */
+    }
+
+    // key axis
+    ctx.beginPath();
+    ctx.moveTo(...pts.end);
+    ctx.lineTo(...pts.tip);
+    ctx.strokeStyle = th.outline;
+    ctx.setLineDash([8 / V.k, 6 / V.k]);
+    ctx.lineWidth = 2 / V.k;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // handles
+    const labels = { card0: '1', card1: '2', card2: '3', card3: '4', ptip: 'hegy', pend: 'fej vége' };
+    ctx.font = '600 12px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    for (const h of app.handles()) {
+      const px = h.x * V.k + V.ox;
+      const py = h.y * V.k + V.oy;
+      const active = h.id === app.selected;
+      const col = active ? th.selected : h.id.startsWith('card') ? '#18a0ff' : th.outline;
+      ctx.lineWidth = active ? 3 : 2;
+      ctx.strokeStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(px, py, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = col;
+      ctx.beginPath();
+      ctx.arc(px, py, 9, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px - 5, py);
+      ctx.lineTo(px + 5, py);
+      ctx.moveTo(px, py - 5);
+      ctx.lineTo(px, py + 5);
+      ctx.stroke();
+      const t = labels[h.id];
+      const tw = ctx.measureText(t).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.65)';
+      ctx.fillRect(px + 13, py - 9, tw + 8, 18);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(t, px + 17, py);
+    }
+  }
+
   drawGrid(ctx, th, f) {
     // visible model-space bounds
-    const W = window.innerWidth / this.s;
-    const Hh = window.innerHeight / this.s;
+    const V = this.view;
+    const X0 = -V.ox / V.k;
+    const Y0 = -V.oy / V.k;
+    const X1 = (window.innerWidth - V.ox) / V.k;
+    const Y1 = (window.innerHeight - V.oy) / V.k;
     const a = axes(f.angle);
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const [X, Y] of [[0, 0], [W, 0], [0, Hh], [W, Hh]]) {
+    for (const [X, Y] of [[X0, Y0], [X1, Y0], [X0, Y1], [X1, Y1]]) {
       const dx = X - f.ox;
       const dy = Y - f.oy;
       const x = dx * a.ux + dy * a.uy;
@@ -437,7 +623,7 @@ export class Stage {
       minX = Math.min(minX, x); maxX = Math.max(maxX, x);
       minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     }
-    const lw = 1 / this.s;
+    const lw = 1 / V.k;
     for (let pass = 0; pass < 3; pass++) {
       const step = [1, 5, 10][pass];
       ctx.strokeStyle = th.grid[pass];

@@ -58,6 +58,14 @@ export function normalizeProject(p) {
   p = p && typeof p === 'object' ? p : {};
   p.v = 1;
   p.name = typeof p.name === 'string' ? p.name.slice(0, 60) : d.name;
+  p.source = p.source === 'photo' ? 'photo' : 'screen';
+  const okPt = (q) => Array.isArray(q) && q.length === 2 && q.every(Number.isFinite);
+  const ph = p.photo;
+  if (ph && ph.points && Array.isArray(ph.points.card) && ph.points.card.length === 4 && ph.points.card.every(okPt) && okPt(ph.points.tip) && okPt(ph.points.end)) {
+    p.photo = { points: ph.points, mirrored: !!ph.mirrored, id: String(ph.id || ''), autoMarked: String(ph.autoMarked || '') };
+  } else {
+    p.photo = null;
+  }
 
   const f = (p.frame = { ...d.frame, ...(p.frame || {}) });
   f.ox = num(f.ox, d.frame.ox);

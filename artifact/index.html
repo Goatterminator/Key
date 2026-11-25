@@ -30,6 +30,38 @@
       </div>
     </div>
 
+    <!-- photo mode: the photo with the card and the key -->
+    <div class="step-panel" data-step="photo">
+      <div id="photoEmpty">
+        <p class="photo-howto">Tedd a kulcsot és egy <b>bankkártyát</b> (vagy személyi igazolványt) egymás mellé egy világos, egyszínű lapra. Fotózd <b>felülről, merőlegesen</b>, kb. 30–40 cm-ről 2× zoommal, hogy a kártya és a kulcs kitöltse a képet. A kártya teljesen látsszon, ne csillogjon.</p>
+        <div class="row wrap">
+          <label class="btn primary file-btn">📷 Fotó készítése<input type="file" accept="image/*" capture="environment" id="photoCamera" hidden></label>
+          <label class="btn file-btn">🖼 Kép választása<input type="file" accept="image/*" id="photoPick" hidden></label>
+        </div>
+      </div>
+      <div id="photoTools" hidden>
+        <div class="readout wrap-text" id="photoReadout"></div>
+        <div class="row wrap">
+          <button class="btn primary small" id="btnAiSetup">🤖 AI felismerés</button>
+          <button class="btn small" id="btnFitPhoto">Teljes kép</button>
+          <label class="btn small file-btn">Új fotó<input type="file" accept="image/*" id="photoReplace" hidden></label>
+        </div>
+      </div>
+      <details class="values" id="aiBox">
+        <summary>AI beállítás <span class="muted" id="aiState"></span></summary>
+        <p class="muted note" id="aiClaude" hidden>Itt a fotót a Claude elemzi, a saját Claude-fiókod keretéből. Kulcs nem kell; az első használatkor engedélyt kér.</p>
+        <p class="muted note" id="aiNone" hidden>Itt most nem érhető el AI: jelöld be a pontokat kézzel.</p>
+        <div id="aiGemini">
+          <div class="grid-form two">
+            <label>Gemini API kulcs<input id="geminiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AIza…"></label>
+            <label>Modell<input id="geminiModel" autocomplete="off" spellcheck="false"></label>
+          </div>
+          <p class="muted note">A kulcs csak ezen az eszközön, ebben a böngészőben tárolódik, és csak a Google Gemini API-nak küldjük el. Kulcsot itt kérhetsz: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></p>
+        </div>
+        <label class="check"><input type="checkbox" id="chkAiMarks"> A „Tovább” után az AI a kulcs részeit is jelölje be</label>
+      </details>
+    </div>
+
     <!-- shared tools for the marking steps -->
     <div class="tools" id="tools">
       <div class="readout-row">
@@ -53,6 +85,7 @@
         <button class="btn small" data-rotate="-1">⟲ 0,2°</button>
         <button class="btn small" data-rotate="1">⟳ 0,2°</button>
         <button class="btn small" id="btnCenter">Középre</button>
+        <button class="btn small" id="btnAiMarks" hidden>🤖 AI jelölés újra</button>
       </div>
       <details class="values">
         <summary>Pontos értékek (mm)</summary>
@@ -168,6 +201,7 @@
 
   <div id="menu" class="sheet" hidden>
     <div class="sheet-card menu-card" role="menu">
+      <button class="menu-item" data-menu="mode">🔁 Bemérés módja (képernyő / fotó)</button>
       <button class="menu-item" data-menu="calib">📏 Kalibrálás</button>
       <button class="menu-item" data-menu="center">⌖ Sablon a képernyő közepére</button>
       <button class="menu-item" data-menu="fullscreen">⛶ Teljes képernyő</button>
@@ -178,6 +212,25 @@
       <button class="menu-item" data-menu="new">✚ Új kulcs</button>
       <button class="menu-item" data-menu="intro">ℹ Bemutató és tudnivalók</button>
       <div class="row end"><button class="btn" id="menuClose">Bezár</button></div>
+    </div>
+  </div>
+
+  <div id="modeSheet" class="sheet" hidden>
+    <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="modeTitle">
+      <h2 id="modeTitle">Hogyan méred be a kulcsot?</h2>
+      <div class="mode-list">
+        <button class="mode-btn" data-mode="photo"><b>📷 Fotóról</b><span>Fotózd le a kulcsot egy bankkártya mellett. Az AI bejelöli a részeit, te a felnagyított képen ellenőrzöd. Gyors és pontos.</span></button>
+        <button class="mode-btn" data-mode="screen"><b>📱 A képernyőn</b><span>Tedd a kulcsot a telefon képernyőjére, és 1:1 méretben jelöld be. Nem kell hozzá AI.</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div id="busy" class="sheet center" hidden>
+    <div class="sheet-card busy-card" role="alertdialog" aria-modal="true" aria-labelledby="busyText">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="busyText"></p>
+      <p class="muted">Ez 5–60 másodpercig is tarthat.</p>
+      <div class="row end"><button class="btn" id="busyCancel">Mégse</button></div>
     </div>
   </div>
 

@@ -2,9 +2,9 @@
 
 export const INTRO = `
 <h2>Kulcsmásoló 3D</h2>
-<p>Tedd a kulcsot a telefon képernyőjére, jelöld be a részeit milliméter pontosan, és tölts le belőle egy 3D nyomtatható STL modellt.</p>
+<p>Mérd be a kulcsot – a telefon képernyőjére fektetve, vagy egy fotóról AI segítséggel –, és tölts le belőle egy 3D nyomtatható STL modellt.</p>
 <ol>
-  <li><b>Kalibrálás</b> egy bankkártyával – így a képernyőn minden 1:1 méretben jelenik meg.</li>
+  <li><b>Fotó</b> a kulcsról egy bankkártya mellett (az AI bejelöli a részeit), <b>vagy kalibrálás</b> egy bankkártyával, ha a kulcsot a képernyőre teszed.</li>
   <li><b>Penge</b> – váll, hátsó él, magasság és a hegy.</li>
   <li><b>Bevágások</b> – a fogazat pontjai.</li>
   <li><b>Fej</b> – a fogórész és a kulcskarika lyuk.</li>
@@ -22,6 +22,17 @@ export const INTRO = `
 `;
 
 export const HELP = {
+  photo: `
+<h2>Fotó</h2>
+<ol>
+  <li>Tedd a kulcsot és egy <b>bankkártyát</b> (vagy személyi igazolványt, jogosítványt – mind 85,60 × 53,98 mm) egymás mellé egy világos, egyszínű lapra. A kulcs feküdjön laposan.</li>
+  <li>Fotózd <b>felülről, merőlegesen</b>. A legpontosabb, ha 30–40 cm-ről 2× zoommal fotózol: így kisebb a torzítás. Vaku nélkül, csillogás nélkül.</li>
+  <li>Az <b>AI felismerés</b> megkeresi a kártya sarkait és a kulcs két végét. Nagyíts rá (két ujjal), és igazítsd a pontokat: a kártya sarkát ott jelöld, ahol az egyenes élek meghosszabbítása találkozna – a kék keretnek pontosan a kártya szélén kell futnia.</li>
+  <li><b>Tovább</b>: az app a kártyából kiszámolja a pontos méretarányt, kiegyenesíti a képet, és az AI bejelöli a kulcs részeit. Ezeket a következő lépésekben a felnagyított fotón ellenőrizd.</li>
+</ol>
+<h3>AI</h3>
+<p>A Claude-os oldalon a beépített Claude elemzi a fotót (kulcs nem kell). Saját weboldalon egy <b>Gemini API kulcsot</b> adhatsz meg az „AI beállítás” alatt; a kulcs csak ezen az eszközön tárolódik. AI nélkül kézzel is bejelölheted a pontokat.</p>
+<p>Az AI csak javaslatot tesz: tized milliméterre nem pontos, ezért minden jelölést nézz át nagyítva.</p>`,
   calib: `
 <h2>Kalibrálás</h2>
 <p>A telefonok képernyője eltérő sűrűségű, ezért egy ismert méretű tárggyal kell beállítani, mekkora 1 mm.</p>
